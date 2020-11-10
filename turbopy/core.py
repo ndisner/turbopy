@@ -231,8 +231,8 @@ class Simulation:
                     params = [params]
                 for tool in params:
                     tool["type"] = tool_name
-                    self.compute_tools.append(tool_class(owner=self, 
-                                                         input_data=tool)) 
+                    self.compute_tools.append(tool_class(owner=self,
+                                                         input_data=tool))
 
     def read_modules_from_input(self):
         """Construct :class:`PhysicsModule` instances based on input"""
@@ -291,7 +291,7 @@ class Simulation:
     def find_tool_by_name(self, tool_name: str, custom_name: str = None):
         """Returns the :class:`ComputeTool` associated with the
         given name"""
-        tools = [t for t in self.compute_tools if t.name == tool_name 
+        tools = [t for t in self.compute_tools if t.name == tool_name
                  and t.custom_name == custom_name]
         if len(tools) == 1:
             return tools[0]
@@ -307,6 +307,7 @@ class DynamicFactory(ABC):
     This base class provides a dynamic factory pattern functionality to
     classes that derive from this.
     """
+
     @property
     @abstractmethod
     def _factory_type_name(self):
@@ -427,7 +428,12 @@ class PhysicsModule(DynamicFactory):
         resource : `dict`
             resource dictionary to be shared
         """
-        pass
+        if any(resource[i] == [] for i in resource):
+            warnings.warn(f"Resource not found")
+            for k in resource.keys():
+                print(f"Resource needed in Module {self.__class__.__name__} for {k}")
+        else:
+            print("All resources found")
 
     def exchange_resources(self):
         """Main method for sharing resources with other
@@ -586,8 +592,8 @@ class SimulationClock:
         if "num_steps" in input_data:
             self.num_steps = input_data["num_steps"]
             self.dt = (
-                (input_data["end_time"] - input_data["start_time"])
-                / input_data["num_steps"])
+                    (input_data["end_time"] - input_data["start_time"])
+                    / input_data["num_steps"])
         elif "dt" in input_data:
             self.dt = input_data["dt"]
             self.num_steps = (self.end_time - self.start_time) / self.dt
@@ -602,13 +608,13 @@ class SimulationClock:
         self.time = self.start_time + self.dt * self.this_step
         if self.print_time:
             print(f"t = {self.time:0.4e}")
-    
+
     def turn_back(self, num_steps=1):
         """Set the time back `num_steps` time steps"""
         self.this_step = self.this_step - num_steps
         self.time = self.start_time + self.dt * self.this_step
         if self.print_time:
-            print(f"t = {self.time}")        
+            print(f"t = {self.time}")
 
     def is_running(self):
         """Check if time is less than end time"""
@@ -660,6 +666,7 @@ class Grid:
         Inverse of coordinate values at each Grid point,
         1/:class:`Grid.r`.
     """
+
     def __init__(self, input_data: dict):
         self._input_data = input_data
         self.r_min = None
@@ -849,17 +856,17 @@ class Grid:
 
     def set_cartesian_volumes(self):
         self.cell_volumes = self.cell_edges[1:] - self.cell_edges[:-1]
-        self.inverse_cell_volumes = 1./self.cell_volumes
+        self.inverse_cell_volumes = 1. / self.cell_volumes
 
     def set_cylindrical_volumes(self):
         scratch = self.cell_edges ** 2
         self.cell_volumes = np.pi * (scratch[1:] - scratch[:-1])
-        self.inverse_cell_volumes = 1./self.cell_volumes
+        self.inverse_cell_volumes = 1. / self.cell_volumes
 
     def set_spherical_volumes(self):
         scratch = self.cell_edges ** 3
-        self.cell_volumes = 4/3 * np.pi * (scratch[1:] - scratch[:-1])
-        self.inverse_cell_volumes = 1./self.cell_volumes
+        self.cell_volumes = 4 / 3 * np.pi * (scratch[1:] - scratch[:-1])
+        self.inverse_cell_volumes = 1. / self.cell_volumes
 
     def set_cartesian_areas(self):
         self.interface_areas = np.ones_like(self.cell_edges)
@@ -931,7 +938,12 @@ class Diagnostic(DynamicFactory):
             A dictionary containing references to data shared by other
             PhysicsModules.
         """
-        pass
+        if any(resource[i] == [] for i in resource):
+            warnings.warn(f"Resource not found")
+            for k in resource.keys():
+                print(f"Resource needed in Diagnostic {self.__class__.__name__} for {k}")
+        else:
+            print("All resources found")
 
     def diagnose(self):
         """Perform diagnostic step

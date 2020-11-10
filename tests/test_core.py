@@ -118,6 +118,10 @@ def test_gridless_simulation(tmp_path):
         assert str(w[-1].message) == "No Grid Found."
 
 
+def test_resources_in_inspect_resource_when_modules_and_diagnostics_are_cycled(simple_sim):
+    pass
+
+
 def test_read_clock_from_input_should_set_clock_attr_when_called(simple_sim):
     """Test read_clock_from_input method in Simulation class"""
     simple_sim.read_clock_from_input()
