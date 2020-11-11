@@ -118,8 +118,20 @@ def test_gridless_simulation(tmp_path):
         assert str(w[-1].message) == "No Grid Found."
 
 
+def test_subclass(simple_sim):
+    """Test if subclasses are contained in Simulation"""
+    assert issubclass(turbopy.core.ExampleModule, PhysicsModule)
+    assert issubclass(turbopy.core.ExampleDiagnostic, Diagnostic)
+    assert issubclass(turbopy.core.ExampleTool, ComputeTool)
+
+
 def test_resources_in_inspect_resource_when_modules_and_diagnostics_are_cycled(simple_sim):
-    pass
+    """Calls in the Example Physics Module or Diagnostic and checks the resources in the resource dictionary"""
+    # Stuck on this
+    # resources_in_physics_module = ExampleModule.inspect_resource(simple_sim, resource: dict):
+    # resources_in_diagnostic = ExampleDiagnostic.inspect_resource(simple_sim, resource: dict):
+    # assert resources_in_physics_module is not None
+    # assert resources_in_diagnostic is not None
 
 
 def test_read_clock_from_input_should_set_clock_attr_when_called(simple_sim):
@@ -181,7 +193,7 @@ def test_turn_back_should_turn_back_time_when_called(simple_sim):
 
 
 def test_read_modules_from_input_should_set_modules_attr_when_called(simple_sim):
-    """Test read_modules_from_input method in Simulation calss"""
+    """Test read_modules_from_input method in Simulation class"""
     simple_sim.read_modules_from_input()
     assert simple_sim.physics_modules[0]._owner == simple_sim
     assert simple_sim.physics_modules[0]._input_data == {"name": "ExampleModule"}

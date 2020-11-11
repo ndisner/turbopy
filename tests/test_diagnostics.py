@@ -64,6 +64,7 @@ def field_fixt_npy(tmp_path):
     field = sim.diagnostics[0]
     return field
 
+
 # Test methods for FieldDiagnostic class with csv file
 def test_init_should_create_class_instance_when_called(simple_field_csv):
     """Tests init method in FieldDiagnostic class"""
