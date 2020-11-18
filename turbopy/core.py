@@ -433,7 +433,7 @@ class PhysicsModule(DynamicFactory):
             for k in resource.keys():
                 print(f"Resource needed in Module {self.__class__.__name__} for {k}")
         else:
-            print("All resources found")
+            print("All physics module resources found")
 
     def exchange_resources(self):
         """Main method for sharing resources with other
@@ -943,7 +943,7 @@ class Diagnostic(DynamicFactory):
             for k in resource.keys():
                 print(f"Resource needed in Diagnostic {self.__class__.__name__} for {k}")
         else:
-            print("All resources found")
+            print("All diagnostic resources found")
 
     def diagnose(self):
         """Perform diagnostic step
