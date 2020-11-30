@@ -18,6 +18,7 @@ from pathlib import Path
 from abc import ABC, abstractmethod
 import numpy as np
 import warnings
+import time
 
 
 class Simulation:
@@ -150,6 +151,7 @@ class Simulation:
 
         self.finalize_simulation()
         print("Simulation complete")
+        SimulationClock.total_computational_time()
 
     def fundamental_cycle(self):
         """
@@ -180,6 +182,7 @@ class Simulation:
 
         print("Initializing Simulation Clock...")
         self.read_clock_from_input()
+        SimulationClock.read_computational_time_at_physics_start_time()
 
         print("Reading Tools...")
         self.read_tools_from_input()
@@ -221,6 +224,7 @@ class Simulation:
     def read_clock_from_input(self):
         """Construct the clock based on input parameters"""
         self.clock = SimulationClock(self, self.input_data["Clock"])
+        SimulationClock.read_computational_time_at_physics_end_time()
 
     def read_tools_from_input(self):
         """Construct :class:`ComputeTools` based on input"""
@@ -562,6 +566,12 @@ class SimulationClock:
         Current time on clock.
     end_time : `float`
         Clock end time.
+    computational_start_time : `float`
+        Starting time of the simulation.
+    computational_end_time : `float`
+        End time of the simulation.
+    computational_time : `float`
+        Total time of simulation.
     this_step : `int`
         Current time step since start.
     print_time : `bool`
@@ -578,6 +588,9 @@ class SimulationClock:
         self.start_time = input_data["start_time"]
         self.time = self.start_time
         self.end_time = input_data["end_time"]
+        self.computational_start_time = None
+        self.computational_end_time = None
+        self.computational_time = None
         self.this_step = 0
         self.print_time = False
         if "print_time" in input_data:
@@ -613,6 +626,17 @@ class SimulationClock:
     def is_running(self):
         """Check if time is less than end time"""
         return self.this_step < self.num_steps
+
+    def read_computational_time_at_physics_start_time(self):
+        self.computational_start_time = time.time()
+
+    def read_simulation_time_at_physics_end_time(self):
+        self.computational_end_time = time.time()
+
+    def total_computational_time(self):
+        """Output the total computational time of the simulation"""
+        self.computational_time = self.computational_end_time - self.computational_start_time
+        print(f"Simulation duration = {self.computational_time}")
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self._input_data})"
