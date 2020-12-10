@@ -196,6 +196,8 @@ class Simulation:
 
         print("Initializing PhysicsModules...")
         for m in self.physics_modules:
+            m.inspect_resources(self._owner_all_shared_resources)
+        for m in self.physics_modules:
             m.exchange_resources()
         for m in self.physics_modules:
             m.initialize()
@@ -408,9 +410,14 @@ class PhysicsModule(DynamicFactory):
 
         Parameters
         ----------
+        all_shared_resources : `dict`
+            global dictionary of all the resources
         resource : `dict`
             resource dictionary to be shared
         """
+        for k, v in self._owner_all_shared_resources.items():
+            self._owner_all_shared_resources[k] = v
+
         for k in resource.keys():
             print(f"Module {self.__class__.__name__} is sharing {k}")
         for physics_module in self._owner.physics_modules:
@@ -418,19 +425,21 @@ class PhysicsModule(DynamicFactory):
         for diagnostic in self._owner.diagnostics:
             diagnostic.inspect_resource(resource)
 
-    def inspect_resource(self, resource: dict):
+    def inspect_resource(self, all_shared_resource: dict, resource: dict):
         """Method for accepting resources shared by other PhysicsModules
         If your subclass needs the data described by the key, now's
         their chance to save a pointer to the data.
 
         Parameters
         ----------
+        all_shared_resource : `dict`
+            global dictionary for all shared resources
         resource : `dict`
             resource dictionary to be shared
         """
-        if any(resource[i] == [] for i in resource):
+        if any(self._owner_all_shared_resource[i] == [] for i in self._owner_all_shared_resource):
             warnings.warn(f"Resource not found")
-            for k in resource.keys():
+            for k in self._owner_all_shared_resource.keys():
                 print(f"Resource needed in Module {self.__class__.__name__} for {k}")
         else:
             print("All physics module resources found")
