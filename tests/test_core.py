@@ -120,9 +120,9 @@ def test_gridless_simulation(tmp_path):
 
 def test_subclass(simple_sim):
     """Test if subclasses are contained in Simulation"""
-    assert issubclass(turbopy.core.ExampleModule, PhysicsModule)
-    assert issubclass(turbopy.core.ExampleDiagnostic, Diagnostic)
-    assert issubclass(turbopy.core.ExampleTool, ComputeTool)
+    assert issubclass(ExampleModule, PhysicsModule)
+    assert issubclass(ExampleDiagnostic, Diagnostic)
+    assert issubclass(ExampleTool, ComputeTool)
 
 
 def test_resources_in_inspect_resource_when_modules_and_diagnostics_are_cycled(simple_sim):

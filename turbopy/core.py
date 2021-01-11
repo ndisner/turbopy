@@ -132,6 +132,8 @@ class Simulation:
         self.units = None
 
         self.input_data = input_data
+        
+        self.all_shared_resources = {}
 
     def run(self):
         """
@@ -196,9 +198,9 @@ class Simulation:
 
         print("Initializing PhysicsModules...")
         for m in self.physics_modules:
-            m.inspect_resources(self._owner_all_shared_resources)
-        for m in self.physics_modules:
             m.exchange_resources()
+        for m in self.physics_modules:
+            m.inspect_resource(self.all_shared_resources)
         for m in self.physics_modules:
             m.initialize()
 
@@ -415,17 +417,17 @@ class PhysicsModule(DynamicFactory):
         resource : `dict`
             resource dictionary to be shared
         """
-        for k, v in self._owner_all_shared_resources.items():
-            self._owner_all_shared_resources[k] = v
+        for k, v in resource.items():
+            self._owner.all_shared_resources[k] = v
 
         for k in resource.keys():
             print(f"Module {self.__class__.__name__} is sharing {k}")
-        for physics_module in self._owner.physics_modules:
-            physics_module.inspect_resource(resource)
+        # for physics_module in self._owner.physics_modules:
+        #     physics_module.inspect_resource(resource)
         for diagnostic in self._owner.diagnostics:
             diagnostic.inspect_resource(resource)
 
-    def inspect_resource(self, all_shared_resource: dict, resource: dict):
+    def inspect_resource(self, all_shared_resource: dict):
         """Method for accepting resources shared by other PhysicsModules
         If your subclass needs the data described by the key, now's
         their chance to save a pointer to the data.
@@ -437,9 +439,9 @@ class PhysicsModule(DynamicFactory):
         resource : `dict`
             resource dictionary to be shared
         """
-        if any(self._owner_all_shared_resource[i] == [] for i in self._owner_all_shared_resource):
+        if any(all_shared_resource[i] == [] for i in all_shared_resource):
             warnings.warn(f"Resource not found")
-            for k in self._owner_all_shared_resource.keys():
+            for k in all_shared_resource.keys():
                 print(f"Resource needed in Module {self.__class__.__name__} for {k}")
         else:
             print("All physics module resources found")
@@ -947,12 +949,12 @@ class Diagnostic(DynamicFactory):
             A dictionary containing references to data shared by other
             PhysicsModules.
         """
-        if any(resource[i] == [] for i in resource):
-            warnings.warn(f"Resource not found")
-            for k in resource.keys():
-                print(f"Resource needed in Diagnostic {self.__class__.__name__} for {k}")
-        else:
-            print("All diagnostic resources found")
+        # if any(resource[i] == [] for i in resource):
+        #     warnings.warn(f"Resource not found")
+        #     for k in resource.keys():
+        #         print(f"Resource needed in Diagnostic {self.__class__.__name__} for {k}")
+        # else:
+        #     print("All diagnostic resources found")
 
     def diagnose(self):
         """Perform diagnostic step
