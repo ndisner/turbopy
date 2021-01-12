@@ -406,6 +406,8 @@ class PhysicsModule(DynamicFactory):
         self._module_type = None
         self._input_data = input_data
 
+        self._resources = {} #dictionary of all resources so we don't need to recalculate in inspect_resource (not sure if we want to do it this way)
+
     def publish_resource(self, resource: dict):
         """
         Method which implements the details of sharing resources
@@ -439,7 +441,7 @@ class PhysicsModule(DynamicFactory):
         resource : `dict`
             resource dictionary to be shared
         """
-        if any(all_shared_resource[i] == [] for i in all_shared_resource):
+        if any(all_shared_resource[i] == [] for i in self._resources):
             warnings.warn(f"Resource not found")
             for k in all_shared_resource.keys():
                 print(f"Resource needed in Module {self.__class__.__name__} for {k}")
@@ -460,6 +462,7 @@ class PhysicsModule(DynamicFactory):
         shared = {f'{self.__class__.__name__}_{attribute}': value for attribute, value
                   in self.__dict__.items()
                   if not attribute.startswith('_')}
+        self.resources = shared
         self.publish_resource(shared)
 
     def update(self):
@@ -949,12 +952,12 @@ class Diagnostic(DynamicFactory):
             A dictionary containing references to data shared by other
             PhysicsModules.
         """
-        # if any(resource[i] == [] for i in resource):
-        #     warnings.warn(f"Resource not found")
-        #     for k in resource.keys():
-        #         print(f"Resource needed in Diagnostic {self.__class__.__name__} for {k}")
-        # else:
-        #     print("All diagnostic resources found")
+        if any(resource[i] == [] for i in resource):
+            warnings.warn(f"Resource not found")
+            for k in resource.keys():
+                print(f"Resource needed in Diagnostic {self.__class__.__name__} for {k}")
+        else:
+            print("All diagnostic resources found")
 
     def diagnose(self):
         """Perform diagnostic step
