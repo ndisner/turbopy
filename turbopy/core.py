@@ -200,11 +200,13 @@ class Simulation:
         for m in self.physics_modules:
             m.exchange_resources()
         for m in self.physics_modules:
-            m.inspect_resource(self.all_shared_resources)
+            m.inspect_resources()
         for m in self.physics_modules:
             m.initialize()
 
         print("Initializing Diagnostics...")
+        for d in self.diagnostics:
+            d.inspect_resources()
         for d in self.diagnostics:
             d.initialize()
 
@@ -303,6 +305,12 @@ class Simulation:
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.input_data})"
+    
+    def gather_shared_resources(self, shared):
+        for k, v in shared.items():
+            if k in self.all_shared_resources:
+                warnings.warn(f'Shared resource {k} has been overwritten')
+            self.all_shared_resources[k] = v
 
 
 class DynamicFactory(ABC):
@@ -406,30 +414,21 @@ class PhysicsModule(DynamicFactory):
         self._module_type = None
         self._input_data = input_data
 
-        self._resources = {} #dictionary of all resources so we don't need to recalculate in inspect_resource (not sure if we want to do it this way)
+        # dictionary of all resources so we don't need to recalculate in inspect_resource 
+        # (not sure if we want to do it this way)
+        # self._resources_to_share = {}
 
-    def publish_resource(self, resource: dict):
-        """
-        Method which implements the details of sharing resources
+        # by default, share "public" attributes
+        shared = {f'{self.__class__.__name__}_{attribute}': value for attribute, value
+                  in self.__dict__.items()
+                  if not attribute.startswith('_')}
+        self._resources_to_share = shared
 
-        Parameters
-        ----------
-        all_shared_resources : `dict`
-            global dictionary of all the resources
-        resource : `dict`
-            resource dictionary to be shared
-        """
-        for k, v in resource.items():
-            self._owner.all_shared_resources[k] = v
+        # items should have key "shared_name", and value is the variable name for the "pointer"
+        # For example: {"Fields:E": "E"} will make self.E
+        self._needed_resources = {}
 
-        for k in resource.keys():
-            print(f"Module {self.__class__.__name__} is sharing {k}")
-        # for physics_module in self._owner.physics_modules:
-        #     physics_module.inspect_resource(resource)
-        for diagnostic in self._owner.diagnostics:
-            diagnostic.inspect_resource(resource)
-
-    def inspect_resource(self, all_shared_resource: dict):
+    def inspect_resources(self):
         """Method for accepting resources shared by other PhysicsModules
         If your subclass needs the data described by the key, now's
         their chance to save a pointer to the data.
@@ -441,12 +440,12 @@ class PhysicsModule(DynamicFactory):
         resource : `dict`
             resource dictionary to be shared
         """
-        if any(all_shared_resource[i] == [] for i in self._resources):
-            warnings.warn(f"Resource not found")
-            for k in all_shared_resource.keys():
-                print(f"Resource needed in Module {self.__class__.__name__} for {k}")
-        else:
-            print("All physics module resources found")
+        for shared_name, var_name in self._needed_resources.items():
+            if not shared_name in self._owner.all_shared_resources:
+                warnings.warn(f"Module {self.__class__.__name__} can't find"
+                              f"needed resource {shared_name}")
+            else:
+                self.__dict__[var_name] = self._owner.all_shared_resources[shared_name]
 
     def exchange_resources(self):
         """Main method for sharing resources with other
@@ -459,11 +458,11 @@ class PhysicsModule(DynamicFactory):
         not start with an underscore) will be shared with the key
         `<class_name>_<attribute_name>`.
         """
-        shared = {f'{self.__class__.__name__}_{attribute}': value for attribute, value
-                  in self.__dict__.items()
-                  if not attribute.startswith('_')}
-        self.resources = shared
-        self.publish_resource(shared)
+
+        for k in self._resources_to_share.keys():
+            print(f"Module {self.__class__.__name__} is sharing {k}")
+
+        self._owner.gather_shared_resources(self._resources_to_share)
 
     def update(self):
         """Do the main work of the :class:`PhysicsModule`
@@ -940,24 +939,28 @@ class Diagnostic(DynamicFactory):
         self._owner = owner
         self._input_data = input_data
 
-    def inspect_resource(self, resource: dict):
-        """Save references to data from other PhysicsModules
+        # items should have key "shared_name", and value is the variable name for the "pointer"
+        # For example: {"Fields:E": "E"} will make self.E
+        self._needed_resources = {}
 
+    def inspect_resources(self):
+        """Method for accepting resources shared by other PhysicsModules
         If your subclass needs the data described by the key, now's
-        their chance to save a reference to the data
+        their chance to save a pointer to the data.
 
         Parameters
         ----------
-        resource: `dict`
-            A dictionary containing references to data shared by other
-            PhysicsModules.
+        all_shared_resource : `dict`
+            global dictionary for all shared resources
+        resource : `dict`
+            resource dictionary to be shared
         """
-        if any(resource[i] == [] for i in resource):
-            warnings.warn(f"Resource not found")
-            for k in resource.keys():
-                print(f"Resource needed in Diagnostic {self.__class__.__name__} for {k}")
-        else:
-            print("All diagnostic resources found")
+        for shared_name, var_name in self._needed_resources.items():
+            if not shared_name in self._owner.all_shared_resources:
+                warnings.warn(f"Diagnostic {self.__class__.__name__} can't find"
+                              f"needed resource {shared_name}")
+            else:
+                self.__dict__[var_name] = self._owner.all_shared_resources[shared_name]
 
     def diagnose(self):
         """Perform diagnostic step
