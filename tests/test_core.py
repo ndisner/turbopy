@@ -315,6 +315,23 @@ def test_turn_back_should_turn_back_time_when_called(simple_sim):
     assert simple_sim.clock.this_step == 0
     assert simple_sim.clock.time == 0
 
+def test_wall_time_attrs_default_to_none(simple_sim):
+    """Wall-time attributes should be None before run() is called."""
+    assert simple_sim.wall_start_time is None
+    assert simple_sim.wall_end_time is None
+    assert simple_sim.wall_time is None
+
+
+def test_run_records_wall_time(simple_sim):
+    """After run(), wall_time should be populated and non-negative."""
+    simple_sim.run()
+    assert simple_sim.wall_start_time is not None
+    assert simple_sim.wall_end_time is not None
+    assert simple_sim.wall_time is not None
+    assert simple_sim.wall_time >= 0
+    assert simple_sim.wall_time == pytest.approx(
+        simple_sim.wall_end_time - simple_sim.wall_start_time)
+
 
 def test_read_modules_from_input_should_set_modules_attr_when_called(simple_sim):
     """Test read_modules_from_input method in Simulation class"""
