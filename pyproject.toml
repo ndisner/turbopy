@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "turbopy"
+dynamic = ["version"]
+description = "A lightweight computational physics framework, which implements a \"Simulation, PhysicsModule, ComputeTool\" class hierarchy."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Nancy Isner", email = "ndisner10@gmail.com"},
+]
+classifiers = [
+    "License :: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "qtoml",
+    "xarray",
+]
+
+[project.urls]
+Homepage = "https://github.com/NRL-Plasma-Physics-Division/turbopy"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = {attr = "turbopy.__version__.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["turbopy*"]
+namespaces = true
