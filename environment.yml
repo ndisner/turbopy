@@ -2,10 +2,12 @@ name: turbopy
 channels:
         - defaults
 dependencies:
-        - python>=3.9
+        - python>=3.11
         - numpy
         - scipy
         - xarray
+        - matplotlib
+        - pandas
         - pytest-runner
         - pytest
         - pytest-cov
