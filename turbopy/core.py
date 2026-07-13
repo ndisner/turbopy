@@ -19,6 +19,7 @@ from pathlib import Path
 from abc import ABC, abstractmethod
 import numpy as np
 import warnings
+import time
 
 
 class Simulation:
@@ -121,6 +122,16 @@ class Simulation:
         A list of :class:`Diagnostic` objects for this simulation.
     compute_tools : list of :class:`ComputeTool` subclass objects
         A list of :class:`ComputeTool` objects for this simulation.
+    wall_start_time : `float` or None
+        Wall-clock (`time.time()`) timestamp captured at the start of
+        :meth:`run`. ``None`` until the simulation runs.
+    wall_end_time : `float` or None
+        Wall-clock timestamp captured at the end of :meth:`run`.
+        ``None`` until the simulation completes.
+    wall_time : `float` or None
+        Total wall-clock duration of :meth:`run` in seconds
+        (``wall_end_time - wall_start_time``). ``None`` until
+        :meth:`run` completes.
     """
 
     def __init__(self, input_data: dict):
@@ -131,6 +142,10 @@ class Simulation:
         self.grid = None
         self.clock = None
         self.units = None
+
+        self.wall_start_time = None
+        self.wall_end_time = None
+        self.wall_time = None
 
         self.input_data = input_data
 
@@ -145,8 +160,10 @@ class Simulation:
         Runs the simulation
 
         This initializes the simulation, runs the main loop, and then
-        finalizes the simulation.
+        finalizes the simulation. Wall-clock time for the full
+        :meth:`run` is recorded in :attr:`wall_time`.
         """
+        self.wall_start_time = time.time()
         print("Simulation is initializing")
         self.prepare_simulation()
         print("Initialization complete")
@@ -156,6 +173,9 @@ class Simulation:
             self.fundamental_cycle()
 
         self.finalize_simulation()
+        self.wall_end_time = time.time()
+        self.wall_time = self.wall_end_time - self.wall_start_time
+        print(f"Simulation duration = {self.wall_time} seconds")
         print("Simulation complete")
 
     def fundamental_cycle(self):
