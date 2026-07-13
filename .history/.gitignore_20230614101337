@@ -15,13 +15,9 @@ _build/
 
 # VS Code
 .vscode/
-.history/
 
 # tmp directory for test output, etc
 tmp/
 .idea
 build
 dist
-
-# claude
-CLAUDE.md
