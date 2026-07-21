@@ -648,18 +648,22 @@ class HistoryDiagnostic(Diagnostic):
         self._traces.coords['time'].attrs['units'] = 's'
         self._traces.coords['time'].attrs['long_name'] = 'Time'
 
-        # set up the grid coordinate
+        # set up the grid coordinate(s)
         grid = self._owner.grid
         if isinstance(grid, Grid2DCartesian):
-            raise NotImplementedError(
-                "HistoryDiagnostic does not yet support Grid2DCartesian. "
-                "2D xarray coordinate support is planned as future work."
-            )
+            self._traces.coords['x'] = ('x', grid.x)
+            self._traces.coords['x'].attrs['units'] = 'm'
+            self._traces.coords['x'].attrs['long_name'] = 'x'
+            self._traces.coords['y'] = ('y', grid.y)
+            self._traces.coords['y'].attrs['units'] = 'm'
+            self._traces.coords['y'].attrs['long_name'] = 'y'
         elif isinstance(grid, Grid2DCylindrical):
-            raise NotImplementedError(
-                "HistoryDiagnostic does not yet support Grid2DCylindrical. "
-                "2D xarray coordinate support is planned as future work."
-            )
+            self._traces.coords['r'] = ('r', grid.r)
+            self._traces.coords['r'].attrs['units'] = 'm'
+            self._traces.coords['r'].attrs['long_name'] = 'Radius'
+            self._traces.coords['z'] = ('z', grid.z)
+            self._traces.coords['z'].attrs['units'] = 'm'
+            self._traces.coords['z'].attrs['long_name'] = 'z'
         else:
             self._traces.coords['r'] = ('grid', grid.r)
             self._traces.coords['r'].attrs['units'] = 'm'

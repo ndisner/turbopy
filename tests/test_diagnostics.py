@@ -3,6 +3,7 @@ Tests for the diagonstics.py file
 """
 import pytest
 import numpy as np
+import xarray as xr
 from turbopy.core import Simulation, PhysicsModule
 
 
@@ -18,6 +19,20 @@ class SharedField(PhysicsModule):
 
 
 PhysicsModule.register("SharedField", SharedField)
+
+
+class SharedField2D(PhysicsModule):
+    """PhysicsModule that publishes a 2D field for HistoryDiagnostic tests."""
+    def __init__(self, owner: Simulation, input_data: dict):
+        super().__init__(owner, input_data)
+        self.data = np.zeros(owner.grid.shape)
+        self._resources_to_share = {'Field2D': self.data}
+
+    def update(self):
+        self.data[...] = self._owner.clock.time
+
+
+PhysicsModule.register("SharedField2D", SharedField2D)
 
 
 @pytest.fixture(name='simple_field_csv')
@@ -165,3 +180,70 @@ def test_csv_diagnose_should_append_data_to_csv_when_called_npy(simple_field_npy
                        simple_field_npy.outputter._buffer_index - 1, :],
                        simple_field_npy.field)
     assert simple_field_npy.outputter._buffer_index == 1
+
+
+# ---------------------------------------------------------------------------
+# HistoryDiagnostic 2D support
+# ---------------------------------------------------------------------------
+
+def _history_sim_2d(coord_sys, tmp_path):
+    if coord_sys == "cartesian2d":
+        grid_input = {"coordinate_system": "cartesian2d",
+                      "Nx": 4, "Ny": 3,
+                      "x_min": 0.0, "x_max": 3.0,
+                      "y_min": 0.0, "y_max": 2.0}
+        trace_dims = ["x", "y"]
+    else:
+        grid_input = {"coordinate_system": "cylindrical2d",
+                      "Nr": 4, "Nz": 3,
+                      "r_min": 1.0, "r_max": 2.0,
+                      "z_min": 0.0, "z_max": 1.0}
+        trace_dims = ["r", "z"]
+    dic = {
+        "Grid": grid_input,
+        "Clock": {"start_time": 0.0, "end_time": 1.0, "num_steps": 2},
+        "Tools": {},
+        "PhysicsModules": {"SharedField2D": {}},
+        "Diagnostics": {
+            "directory": str(tmp_path),
+            "histories": {
+                "filename": str(tmp_path / "history.nc"),
+                "traces": [
+                    {"name": "Field2D",
+                     "coords": trace_dims,
+                     "units": "T",
+                     "long_name": "Test 2D field"},
+                ],
+            },
+        },
+    }
+    return Simulation(dic), trace_dims
+
+
+def test_history_diagnostic_cartesian2d_writes_netcdf(tmp_path):
+    sim, dims = _history_sim_2d("cartesian2d", tmp_path)
+    sim.run()  # must not raise NotImplementedError
+    ds = xr.open_dataset(tmp_path / "history.nc")
+    for d in dims:
+        assert d in ds.coords, f"expected coord {d!r} on saved dataset"
+    field = ds["Field2D"]
+    assert field.sizes["x"] == 4
+    assert field.sizes["y"] == 3
+    # SharedField2D.update() sets data = clock.time at each step
+    assert "timestep" in field.dims
+    ds.close()
+
+
+def test_history_diagnostic_cylindrical2d_writes_netcdf(tmp_path):
+    sim, dims = _history_sim_2d("cylindrical2d", tmp_path)
+    sim.run()
+    ds = xr.open_dataset(tmp_path / "history.nc")
+    for d in dims:
+        assert d in ds.coords
+    field = ds["Field2D"]
+    assert field.sizes["r"] == 4
+    assert field.sizes["z"] == 3
+    # coord values should match grid.r and grid.z
+    np.testing.assert_allclose(ds["r"].values, np.linspace(1.0, 2.0, 4))
+    np.testing.assert_allclose(ds["z"].values, np.linspace(0.0, 1.0, 3))
+    ds.close()

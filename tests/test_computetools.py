@@ -334,3 +334,275 @@ def test_poisson_solver():
     ans = np.array([-4.5, -3.0, 0.0])
     np.testing.assert_almost_equal(solved, ans, decimal=4)
     assert solved.size == input_data["Grid"]["N"]
+
+
+# ---------------------------------------------------------------------------
+# FiniteDifference2D
+# ---------------------------------------------------------------------------
+
+def _clock_tools():
+    return {
+        "Clock": {"start_time": 0, "end_time": 1, "num_steps": 1},
+        "Tools": {},
+        "PhysicsModules": {},
+    }
+
+
+@pytest.fixture
+def cart2d_sim():
+    """Simulation with a Grid2DCartesian; regular 5x4 grid on [0,4] x [0,3]."""
+    dic = {"Grid": {"coordinate_system": "cartesian2d",
+                    "Nx": 5, "Ny": 4,
+                    "x_min": 0.0, "x_max": 4.0,
+                    "y_min": 0.0, "y_max": 3.0},
+           **_clock_tools()}
+    sim = Simulation(dic)
+    sim.prepare_simulation()
+    return sim
+
+
+@pytest.fixture
+def cart2d_fd(cart2d_sim):
+    return FiniteDifference2D(cart2d_sim, {"type": "FiniteDifference2D"})
+
+
+@pytest.fixture
+def cyl2d_sim():
+    """Simulation with a Grid2DCylindrical; r ∈ [1, 5], z ∈ [0, 3]. r_min > 0
+    keeps the (1/r) term regular so analytic references stay clean.
+    """
+    dic = {"Grid": {"coordinate_system": "cylindrical2d",
+                    "Nr": 5, "Nz": 4,
+                    "r_min": 1.0, "r_max": 5.0,
+                    "z_min": 0.0, "z_max": 3.0},
+           **_clock_tools()}
+    sim = Simulation(dic)
+    sim.prepare_simulation()
+    return sim
+
+
+@pytest.fixture
+def cyl2d_fd(cyl2d_sim):
+    return FiniteDifference2D(cyl2d_sim, {"type": "FiniteDifference2D"})
+
+
+def _apply(op, field):
+    """Apply a 2D sparse operator to a field of shape (N1, N2)."""
+    return (op @ field.ravel(order='C')).reshape(field.shape)
+
+
+def test_fd2d_init_rejects_1d_grid():
+    dic = {"Grid": {"N": 5, "r_min": 0, "r_max": 1}, **_clock_tools()}
+    sim = Simulation(dic)
+    sim.prepare_simulation()
+    with pytest.raises(TypeError):
+        FiniteDifference2D(sim, {"type": "FiniteDifference2D"})
+
+
+# ----- Cartesian --------------------------------------------------------------
+
+def test_ddx_shape(cart2d_fd, cart2d_sim):
+    Nx, Ny = cart2d_sim.grid.Nx, cart2d_sim.grid.Ny
+    assert cart2d_fd.ddx().shape == (Nx * Ny, Nx * Ny)
+
+
+def test_ddx_on_linear_x(cart2d_fd, cart2d_sim):
+    grid = cart2d_sim.grid
+    f = grid.XX.copy()  # f(x, y) = x
+    result = _apply(cart2d_fd.ddx(), f)
+    # centered difference of x is 1 on interior rows (i = 1..Nx-2)
+    assert np.allclose(result[1:-1, :], 1.0)
+
+
+def test_ddy_on_linear_y(cart2d_fd, cart2d_sim):
+    grid = cart2d_sim.grid
+    f = grid.YY.copy()  # f(x, y) = y
+    result = _apply(cart2d_fd.ddy(), f)
+    assert np.allclose(result[:, 1:-1], 1.0)
+
+
+def test_del2_x_on_quadratic_x(cart2d_fd, cart2d_sim):
+    grid = cart2d_sim.grid
+    f = grid.XX ** 2  # d^2/dx^2 = 2 (exact for centered diff on quadratics)
+    result = _apply(cart2d_fd.del2_x(), f)
+    assert np.allclose(result[1:-1, :], 2.0)
+
+
+def test_del2_y_on_quadratic_y(cart2d_fd, cart2d_sim):
+    grid = cart2d_sim.grid
+    f = grid.YY ** 2
+    result = _apply(cart2d_fd.del2_y(), f)
+    assert np.allclose(result[:, 1:-1], 2.0)
+
+
+def test_laplacian_cartesian_on_x2_plus_y2(cart2d_fd, cart2d_sim):
+    grid = cart2d_sim.grid
+    f = grid.XX ** 2 + grid.YY ** 2
+    result = _apply(cart2d_fd.laplacian(), f)
+    assert np.allclose(result[1:-1, 1:-1], 4.0)
+
+
+def test_cartesian_ops_reject_cylindrical_grid(cyl2d_fd):
+    with pytest.raises(TypeError):
+        cyl2d_fd.ddx()
+    with pytest.raises(TypeError):
+        cyl2d_fd.ddy()
+    with pytest.raises(TypeError):
+        cyl2d_fd.del2_x()
+    with pytest.raises(TypeError):
+        cyl2d_fd.del2_y()
+
+
+# ----- Cylindrical ------------------------------------------------------------
+
+def test_ddr_shape(cyl2d_fd, cyl2d_sim):
+    Nr, Nz = cyl2d_sim.grid.Nr, cyl2d_sim.grid.Nz
+    assert cyl2d_fd.ddr().shape == (Nr * Nz, Nr * Nz)
+
+
+def test_ddr_on_linear_r(cyl2d_fd, cyl2d_sim):
+    grid = cyl2d_sim.grid
+    f = grid.RR.copy()  # f(r, z) = r; df/dr = 1
+    result = _apply(cyl2d_fd.ddr(), f)
+    assert np.allclose(result[1:-1, :], 1.0)
+
+
+def test_ddz_on_linear_z(cyl2d_fd, cyl2d_sim):
+    grid = cyl2d_sim.grid
+    f = grid.ZZ.copy()
+    result = _apply(cyl2d_fd.ddz(), f)
+    assert np.allclose(result[:, 1:-1], 1.0)
+
+
+def test_del2_z_on_quadratic_z(cyl2d_fd, cyl2d_sim):
+    grid = cyl2d_sim.grid
+    f = grid.ZZ ** 2
+    result = _apply(cyl2d_fd.del2_z(), f)
+    assert np.allclose(result[:, 1:-1], 2.0)
+
+
+def test_del2_r_on_quadratic_r(cyl2d_fd, cyl2d_sim):
+    """d²/dr² + (1/r) d/dr applied to r² is 2 + (1/r)(2r) = 4 (exact for
+    centered diff on quadratics)."""
+    grid = cyl2d_sim.grid
+    f = grid.RR ** 2
+    result = _apply(cyl2d_fd.del2_r(), f)
+    assert np.allclose(result[1:-1, :], 4.0)
+
+
+def test_laplacian_cylindrical_on_r2_plus_z2(cyl2d_fd, cyl2d_sim):
+    """∇² (r² + z²) = 4 + 2 = 6 in axisymmetric cylindrical coords."""
+    grid = cyl2d_sim.grid
+    f = grid.RR ** 2 + grid.ZZ ** 2
+    result = _apply(cyl2d_fd.laplacian(), f)
+    assert np.allclose(result[1:-1, 1:-1], 6.0)
+
+
+def test_cylindrical_ops_reject_cartesian_grid(cart2d_fd):
+    with pytest.raises(TypeError):
+        cart2d_fd.ddr()
+    with pytest.raises(TypeError):
+        cart2d_fd.ddz()
+    with pytest.raises(TypeError):
+        cart2d_fd.del2_z()
+    with pytest.raises(TypeError):
+        cart2d_fd.del2_r()
+
+
+# ---------------------------------------------------------------------------
+# PoissonSolver2D
+# ---------------------------------------------------------------------------
+
+def _poisson2d_cart_sim(Nx=9, Ny=7):
+    dic = {"Grid": {"coordinate_system": "cartesian2d",
+                    "Nx": Nx, "Ny": Ny,
+                    "x_min": 0.0, "x_max": 1.0,
+                    "y_min": 0.0, "y_max": 1.0},
+           **_clock_tools()}
+    sim = Simulation(dic)
+    sim.prepare_simulation()
+    return sim
+
+
+def _poisson2d_cyl_sim(Nr=9, Nz=7):
+    dic = {"Grid": {"coordinate_system": "cylindrical2d",
+                    "Nr": Nr, "Nz": Nz,
+                    "r_min": 1.0, "r_max": 2.0,
+                    "z_min": 0.0, "z_max": 1.0},
+           **_clock_tools()}
+    sim = Simulation(dic)
+    sim.prepare_simulation()
+    return sim
+
+
+def test_poisson2d_init_rejects_1d_grid():
+    dic = {"Grid": {"N": 5, "r_min": 0, "r_max": 1}, **_clock_tools()}
+    sim = Simulation(dic)
+    sim.prepare_simulation()
+    with pytest.raises(TypeError):
+        PoissonSolver2D(sim, {"type": "PoissonSolver2D"})
+
+
+def test_poisson2d_solve_wrong_shape_raises():
+    sim = _poisson2d_cart_sim()
+    solver = PoissonSolver2D(sim, {"type": "PoissonSolver2D"})
+    with pytest.raises(ValueError):
+        solver.solve(np.zeros((3, 3)))
+
+
+def test_poisson2d_cartesian_polynomial_solution_is_exact():
+    """φ(x,y) = x(1-x)y(1-y) is exactly recovered because the centered-diff
+    Laplacian is exact on quadratics. ∇²φ = -2y(1-y) - 2x(1-x)."""
+    sim = _poisson2d_cart_sim(Nx=9, Ny=7)
+    solver = PoissonSolver2D(sim, {"type": "PoissonSolver2D"})
+    grid = sim.grid
+    xx, yy = grid.XX, grid.YY
+    phi_true = xx * (1.0 - xx) * yy * (1.0 - yy)
+    source = -2.0 * yy * (1.0 - yy) - 2.0 * xx * (1.0 - xx)
+    phi = solver.solve(source)
+    np.testing.assert_allclose(phi, phi_true, atol=1e-10)
+
+
+def test_poisson2d_cartesian_dirichlet_zero_on_all_edges():
+    sim = _poisson2d_cart_sim()
+    solver = PoissonSolver2D(sim, {"type": "PoissonSolver2D"})
+    grid = sim.grid
+    source = np.ones(grid.shape)  # arbitrary source
+    phi = solver.solve(source)
+    assert np.allclose(phi[0, :], 0.0)
+    assert np.allclose(phi[-1, :], 0.0)
+    assert np.allclose(phi[:, 0], 0.0)
+    assert np.allclose(phi[:, -1], 0.0)
+
+
+def test_poisson2d_cylindrical_polynomial_solution_is_exact():
+    """φ(r,z) = (r-1)(2-r) z(1-z). ∇²φ in axisymmetric cyl. coords is exact
+    for this quadratic in r plus the (1/r) d/dr term.
+
+    fr(r) = -r² + 3r - 2  → fr' = 3 - 2r, fr'' = -2
+    fz(z) = z - z²        → fz'' = -2
+    ∇²φ = [fr'' + (1/r) fr'] fz + fr fz''
+        = (-4 + 3/r) fz - 2 fr
+    """
+    sim = _poisson2d_cyl_sim(Nr=9, Nz=7)
+    solver = PoissonSolver2D(sim, {"type": "PoissonSolver2D"})
+    grid = sim.grid
+    rr, zz = grid.RR, grid.ZZ
+    fr = (rr - 1.0) * (2.0 - rr)
+    fz = zz * (1.0 - zz)
+    phi_true = fr * fz
+    source = (-4.0 + 3.0 / rr) * fz - 2.0 * fr
+    phi = solver.solve(source)
+    np.testing.assert_allclose(phi, phi_true, atol=1e-10)
+
+
+def test_poisson2d_cylindrical_dirichlet_zero_on_all_edges():
+    sim = _poisson2d_cyl_sim()
+    solver = PoissonSolver2D(sim, {"type": "PoissonSolver2D"})
+    grid = sim.grid
+    source = np.ones(grid.shape)
+    phi = solver.solve(source)
+    assert np.allclose(phi[0, :], 0.0)
+    assert np.allclose(phi[-1, :], 0.0)
+    assert np.allclose(phi[:, 0], 0.0)
+    assert np.allclose(phi[:, -1], 0.0)
