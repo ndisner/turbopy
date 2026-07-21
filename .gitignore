@@ -22,6 +22,3 @@ tmp/
 .idea
 build
 dist
-
-# claude
-.claude
