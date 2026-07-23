@@ -391,6 +391,26 @@ def test_grid_init(simple_grid):
     assert simple_grid.r_max == 0.1
 
 
+def test_gridbase_repr_falls_back_when_input_data_missing():
+    """``GridBase.__repr__`` must not raise on partial subclasses.
+
+    Regression: the base ``__repr__`` used to access ``self._input_data``
+    unconditionally, so a subclass that stored its config differently
+    (or an instance inspected before ``__init__`` completed) would raise
+    ``AttributeError`` from a debug ``repr()`` call.
+    """
+    class _BareGrid(GridBase):
+        def generate_field(self, num_components=1,
+                           placement_of_points="edge-centered"):
+            return None
+
+        def create_interpolator(self, location):
+            return None
+
+    bare = _BareGrid()
+    assert repr(bare) == "_BareGrid(<uninitialized>)"
+
+
 def test_parse_grid_data(simple_grid):
     """Test parse_grid_data method in Grid class"""
     assert simple_grid.num_points == 8

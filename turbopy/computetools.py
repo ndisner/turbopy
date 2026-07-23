@@ -80,6 +80,12 @@ class FiniteDifference(ComputeTool):
         - ``"method"`` | {``"centered"`` | ``"upwind_left"``} :
             Select between centered difference, and left upwind
             difference for the `setup_ddx` member function.
+
+    Raises
+    ------
+    TypeError
+        If the simulation grid is not a 1D :class:`~turbopy.core.Grid`.
+        Use :class:`FiniteDifference2D` for 2D grids.
     """
     def __init__(self, owner: Simulation, input_data: dict):
         super().__init__(owner, input_data)
@@ -429,6 +435,14 @@ class BorisPush(ComputeTool):
             The value of the electric field at the particle
         B: :class:`numpy.ndarray`
             The value of the magnetic field at the particle
+
+        Notes
+        -----
+        ``position`` and ``momentum`` are updated **in place**.  The
+        caller's arrays are mutated; nothing is returned.  Use this
+        contract when publishing particle state as a turboPy shared
+        resource, since other modules will hold references to the
+        same array objects.
         """
         dt = self._owner.clock.dt
 
@@ -472,16 +486,19 @@ class Interpolators(ComputeTool):
             List of input values to be interpolated
         y : list
             List of output values to be interpolated
-        kind : str
-            Order of function being used to relate the two datasets,
-            defaults to "linear". Passed as a parameter to
-            scipy.interpolate.interpolate.interp1d.
+        kind : str, optional
+            Order of the interpolating function.  Passed straight
+            through to :func:`scipy.interpolate.interp1d`; accepted
+            values include ``"linear"``, ``"nearest"``, ``"zero"``,
+            ``"slinear"``, ``"quadratic"``, ``"cubic"``,
+            ``"previous"``, and ``"next"``, or an integer specifying
+            spline order.  Default is ``"linear"``.
 
         Returns
         -------
-        f : scipy.interpolate.interpolate.interp1d
-            Function which interpolates y(x) given grid `x` and
-            values `y` on the grid.
+        f : :class:`scipy.interpolate.interp1d`
+            Callable that interpolates ``y(x)`` given grid ``x`` and
+            values ``y`` on the grid.
         """
         f = interpolate.interp1d(x, y, kind)
         return f

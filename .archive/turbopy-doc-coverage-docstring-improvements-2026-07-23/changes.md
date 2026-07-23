@@ -1,0 +1,41 @@
+# Stage 2: turboPy documentation coverage & docstring pass
+
+## Files created
+
+- `docs/overview.rst` — new narrative page: framework mental model, ASCII diagram, DynamicFactory summary, main-loop excerpt, and reading order for the rest of the guide.
+- `docs/simulation_lifecycle.rst` — new narrative page: full `Simulation.run` walkthrough including preparation, main cycle, and finalization phases.
+- `docs/clock.rst` — new narrative page: `SimulationClock` configuration keys, runtime API, and the `dt` `RuntimeError` case.
+- `docs/grids.rst` — new narrative page: `GridBase` API, 1D `Grid` coordinate systems, `Grid2DCartesian`, `Grid2DCylindrical`, field-placement options, and the `isinstance` idiom for grid-agnostic code.
+- `docs/physics_modules.rst` — new narrative page: anatomy of a `PhysicsModule`, full lifecycle hook order, and registration pattern.
+- `docs/compute_tools.rst` — new narrative page: when to use a `ComputeTool`, `find_tool_by_name`/`custom_name`, and a rundown of every stock tool.
+- `docs/diagnostics.rst` — new narrative page: `Diagnostic` lifecycle, default filename/directory conventions, built-in diagnostics, and the `OutputUtility` / `IntervalHandler` helpers.
+- `docs/dynamic_factory.rst` — new narrative page: registry pattern, `register`/`lookup`/`is_valid_name`, and how to implement a new factory.
+- `docs/input_files.rst` — new narrative page: TOML entry point, top-level input keys, and side-by-side TOML/dict example.
+
+## Files edited
+
+### docs
+- `docs/index.rst` — extended the toctree to include all nine new narrative pages plus `sharing_data` in the order specified.
+- `docs/api.rst` — fixed the `PhyiscsModule` typo, added a `turbopy.constructors` autodoc section, and added `:inherited-members:` on the three `automodule` blocks so factory methods surface on subclasses.
+- `docs/getting_started.rst` — added a “Your first turboPy app” subsection with a minimal registered `PhysicsModule` example and a “Running the test suite” subsection using the coverage invocation from `CLAUDE.md`.
+- `docs/conf.py` — pulled `release` from `turbopy.__version__`; enabled `sphinx.ext.autosummary` and `sphinx.ext.viewcode`; added `autodoc_default_options` (`members`, `inherited-members`, `show-inheritance`, `special-members: '__init__'`) and `autosummary_generate = True`; upgraded intersphinx URLs to canonical HTTPS paths; removed the duplicate `master_doc` assignment; removed the alabaster-specific `html_sidebars` block.
+
+### code (docstring-only changes)
+- `turbopy/core.py` — added / expanded numpydoc docstrings on `Simulation.combine_dictionaries`, `parse_diagnostic_input_dictionary`, `sort_modules`, `find_tool_by_name`, `__repr__`, `gather_shared_resources`, `read_clock_from_input`, `read_tools_from_input`, `read_modules_from_input`, `read_diagnostics_from_input`; expanded `DynamicFactory` class docstring plus `register`/`lookup`/`is_valid_name`; converted the `PhysicsModule.publish_resource`, `PhysicsModule.inspect_resource`, and `Diagnostic.inspect_resource` deprecation notes to `.. deprecated::` directives; added / expanded docstrings on `PhysicsModule.inspect_resources`, `exchange_resources`, `update`, `reset`, `initialize`, `__repr__`; `ComputeTool.initialize` and `__repr__`; `SimulationClock.advance`, `turn_back`, `is_running`, `__repr__`; `GridBase.__repr__`; `Grid.set_grid_points`; `Grid.generate_field` (added `Raises` and expanded placement list); the six `set_*_volumes` / `set_*_areas` helpers plus `set_interface_volumes` and `set_volume_and_area_elements`; `Diagnostic.inspect_resources`, `__repr__`; and the module-level helpers `wrap_item_in_list` / `make_values_into_lists`.
+- `turbopy/computetools.py` — added `Raises TypeError` note to `FiniteDifference.__init__`; added in-place-mutation `Notes` section to `BorisPush.push`; enumerated allowed `kind` values in `Interpolators.interpolate1D`. `FiniteDifference2D.__init__` already documented its `TypeError` — no change needed.
+- `turbopy/diagnostics.py` — expanded `OutputUtility.__init__` and the three abstract methods; rewrote `PrintOutputUtility` class docstring to flag its missing abstract implementations (see “Notes for reviewer”); added `IntervalHandler.perform_action` `Parameters` section; rewrote `PointDiagnostic` and `FieldDiagnostic` class docstrings, replacing stale `csv` attribute references with the actual `outputter` / `interval` / `handler` (`dump_handler` / `write_handler`) attributes; rewrote `GridDiagnostic` class docstring (removed non-existent `owner` / `input_data` attributes, explained the 2D-vs-1D branching, fixed the `diagnotic` typo in `diagnose`); rewrote `ClockDiagnostic` class docstring (removed non-existent `owner` / `input_data`, kept the real `csv` / `interval` / `handler` attributes); added a `Raises NotImplementedError` block to `HistoryDiagnostic`; added docstrings to `HistoryDiagnostic.diagnose`, `do_diagnostic`, `initialize`, and `finalize`; expanded `PointDiagnostic.initialize` and `FieldDiagnostic.diagnose` / `initialize`; expanded `GridDiagnostic.diagnose` / `initialize` prose.
+- `turbopy/constructors.py` — expanded the module docstring to describe the file format and cross-link to `Simulation` and the new `input_files` narrative page; expanded the `construct_simulation_from_toml` return description.
+- `turbopy/__init__.py` — expanded module docstring to enumerate public re-exports and added `from .__version__ import __version__` so `docs/conf.py` can pull `release = turbopy.__version__`.
+
+## Notes for reviewer
+
+- **Latent bug: `PrintOutputUtility`** (`turbopy/diagnostics.py`) still does not implement the abstract `finalize` / `write_data` methods declared on `OutputUtility`. The docstring now flags this as a latent bug per the coder brief; the runtime behavior is unchanged. The class is reachable via the `"stdout"` entry of the `utilities` dict, and `PointDiagnostic.finalize` / `FieldDiagnostic.finalize` unconditionally call `self.outputter.finalize()`, which will `AttributeError` if `"stdout"` is ever configured with a `write_interval` or used from a diagnostic that calls `finalize`.  Decide whether to (a) provide no-op implementations on `PrintOutputUtility`, (b) drop it from the `utilities` map, or (c) leave it and gate diagnostics on `output_type != "stdout"`.
+- **Docstring vs. code drift: `PointDiagnostic` / `FieldDiagnostic`.** Their class docstrings *previously* referred to an attribute `self.csv`, but the current code uses `self.outputter` — the docstrings have been corrected to match the code.  No runtime change.
+- **`ClockDiagnostic.csv` is real.** Unlike the two above, `ClockDiagnostic` genuinely assigns `self.csv = CSVOutputUtility(...)` in `initialize`, so the docstring documents `csv` as an existing attribute. Consider a follow-up PR to rename `csv` → `outputter` here for consistency with `PointDiagnostic` / `FieldDiagnostic`.
+- **`sort_modules` is a stub.** Docstring says so; no behavior change.
+- **`Grid.set_grid_points` and the `set_*_volumes` / `set_*_areas` helpers** are now documented with one-line summaries per the planner's recommendation.  No rename to leading-underscore was performed (out of scope per Open Question 5).
+- **`docs/sharing_data.rst`** still references `turbopy.core.PhyiscsModules` (double typo — plural + misspelling) in two `:class:` roles.  These pre-date this PR; the spec did not list `sharing_data.rst` as a page to edit, so they were left untouched to avoid unrelated cleanup. Expect the corresponding cross-reference warnings to persist unchanged from `main`.
+- **`GridBase.__repr__`** references `self._input_data`, an attribute set by concrete subclasses (`Grid`, `Grid2DCartesian`, `Grid2DCylindrical`) but not by `GridBase` itself. The new docstring notes this contract. No runtime change.
+- **`docs/conf.py` `release`** is now derived from `turbopy.__version__`, which comes from the newly re-exported `turbopy/__init__.py` symbol. If the Sphinx build environment can't import `turbopy`, the fallback assigns `release = ''` rather than crashing.
+- **`api.rst`** was left as a single autodoc dump per Open Question 2 / planner recommendation. New narrative pages cross-link into it via `:class:` roles.
+- No test files were touched. No runtime behavior was changed.  `pytest` should still pass unchanged.

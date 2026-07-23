@@ -5,6 +5,7 @@ import pytest
 import numpy as np
 import xarray as xr
 from turbopy.core import Simulation, PhysicsModule
+from turbopy.diagnostics import PrintOutputUtility, utilities
 
 
 class SharedField(PhysicsModule):
@@ -247,3 +248,45 @@ def test_history_diagnostic_cylindrical2d_writes_netcdf(tmp_path):
     np.testing.assert_allclose(ds["r"].values, np.linspace(1.0, 2.0, 4))
     np.testing.assert_allclose(ds["z"].values, np.linspace(0.0, 1.0, 3))
     ds.close()
+    
+# Regression tests for PrintOutputUtility.
+# Before the fix, PrintOutputUtility left OutputUtility.finalize and
+# .write_data abstract, so instantiating it (including via the "stdout"
+# entry in the utilities registry) raised TypeError. These tests lock in
+# that the class is instantiable and that finalize/write_data are safe
+# no-ops, keeping the "stdout" output_type usable end-to-end.
+def test_print_output_utility_can_be_instantiated():
+    utility = PrintOutputUtility()
+    assert isinstance(utility, PrintOutputUtility)
+
+
+def test_print_output_utility_diagnose_prints_to_stdout(capsys):
+    utility = PrintOutputUtility()
+    utility.diagnose(np.array([1.0, 2.0, 3.0]))
+    captured = capsys.readouterr()
+    assert "1." in captured.out and "3." in captured.out
+
+
+def test_print_output_utility_finalize_and_write_data_are_noops():
+    utility = PrintOutputUtility()
+    assert utility.finalize() is None
+    assert utility.write_data() is None
+
+
+def test_utilities_stdout_entry_matches_diagnostic_call_pattern():
+    """The ``"stdout"`` entry must accept the same kwargs a diagnostic splats.
+
+    Real diagnostics do ``utilities[output_type](**self._input_data)`` (see
+    :meth:`turbopy.diagnostics.PointDiagnostic.initialize` /
+    :meth:`turbopy.diagnostics.FieldDiagnostic.initialize`), so the stdout
+    utility must tolerate keys like ``filename`` and ``diagnostic_size``.
+    """
+    diagnostic_input_data = {
+        "output_type": "stdout",
+        "filename": None,
+        "diagnostic_size": (1, 1),
+        "component": "Component",
+        "field": "Field",
+    }
+    utility = utilities["stdout"](**diagnostic_input_data)
+    assert isinstance(utility, PrintOutputUtility)

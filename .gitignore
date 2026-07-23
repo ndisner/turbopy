@@ -1,6 +1,8 @@
 # pytest
 .pytest_cache
 .coverage
+coverage.xml
+htmlcov/
 pytestdebug.log
 __pycache__/
 
@@ -22,6 +24,3 @@ tmp/
 .idea
 build
 dist
-
-# claude
-.claude

@@ -1,12 +1,12 @@
 Sharing Resources
 =================
 
-It is often necessary to share resources between custom :class:`turbopy.core.PhyiscsModules` or :class:`turbopy.core.Diagnostics`. A new API has been developed to assist with this. To use this new API, you simply need to define a couple of dictionaries (``_resources_to_share`` and ``_needed_resources``) in your class. Then, when the ``prepare_simulation`` method of your simulation is called, the shared variables get set up automatically.
+It is often necessary to share resources between custom :class:`turbopy.core.PhysicsModule` or :class:`turbopy.core.Diagnostic`. A new API has been developed to assist with this. To use this new API, you simply need to define a couple of dictionaries (``_resources_to_share`` and ``_needed_resources``) in your class. Then, when the ``prepare_simulation`` method of your simulation is called, the shared variables get set up automatically.
 
 Making resources available to other modules
 -------------------------------------------
 
-In order to tell other :class:`turbopy.core.PhyiscsModules` about resources that you want to share, just add them to the member variable ``_resources_to_share`` in the ``__init__`` method. For example, the following function will share the variables ``self.position`` and ``self.momentum``::
+In order to tell other :class:`turbopy.core.PhysicsModule` about resources that you want to share, just add them to the member variable ``_resources_to_share`` in the ``__init__`` method. For example, the following function will share the variables ``self.position`` and ``self.momentum``::
 
     def __init__(self, owner: Simulation, input_data: dict):
         super().__init__(owner, input_data)
