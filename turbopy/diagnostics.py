@@ -22,26 +22,71 @@ class OutputUtility(ABC):
     the diagnostic information.
     """
     def __init__(self, input_data):
+        """Base constructor for the output utility.
+
+        Parameters
+        ----------
+        input_data : dict
+            Configuration passed straight from the owning diagnostic.
+            The base class does not use it, but subclasses (e.g.,
+            :class:`CSVOutputUtility`) accept keyword arguments such
+            as ``filename`` and ``diagnostic_size``.
+        """
         pass
 
     @abstractmethod
     def diagnose(self, data):
-        """Perform the diagnostic"""
+        """Consume one data sample.
+
+        Subclasses implement how a sample is stored, printed, or
+        forwarded.
+
+        Parameters
+        ----------
+        data : :class:`numpy.ndarray`
+            The value to record.  Typically a 1D array, but the
+            exact shape depends on the subclass.
+        """
         pass
 
     @abstractmethod
     def finalize(self):
-        """Perform any finalization steps when the simulation is complete"""
+        """Complete any outstanding output work.
+
+        Called once from :meth:`turbopy.core.Diagnostic.finalize`
+        when the simulation ends.  Subclasses typically flush any
+        remaining buffered data to disk here.
+        """
         pass
 
     @abstractmethod
     def write_data(self):
-        """Optional function for writting buffer to file etc."""
+        """Flush the current in-memory buffer to persistent storage.
+
+        Called intermittently by :class:`IntervalHandler` during a
+        long-running simulation so that output is not lost if the
+        process is killed before :meth:`finalize` runs.
+        """
         pass
 
 
 class PrintOutputUtility(OutputUtility):
-    """OutputUtility which writes to the screen"""
+    """OutputUtility that writes samples directly to standard output.
+
+    Every call to :meth:`diagnose` prints immediately, so there is no
+    in-memory buffer to flush; :meth:`finalize` and :meth:`write_data`
+    are implemented as no-ops to satisfy the :class:`OutputUtility`
+    abstract contract.
+    """
+    def __init__(self, **kwargs):
+        """Accept and ignore any diagnostic config keys.
+
+        Instantiated via ``utilities["stdout"](**diagnostic_input_data)``,
+        so the signature must tolerate whatever keys the diagnostic passes
+        (``filename``, ``diagnostic_size``, ``output_type``, ...) even
+        though none of them are needed.
+        """
+
     def diagnose(self, data):
         """
         Prints out data to standard output.
@@ -52,6 +97,12 @@ class PrintOutputUtility(OutputUtility):
             1D numpy array of values.
         """
         print(data)
+
+    def finalize(self):
+        """No-op — output is written eagerly in :meth:`diagnose`."""
+
+    def write_data(self):
+        """No-op — output is written eagerly in :meth:`diagnose`."""
 
 
 class CSVOutputUtility(OutputUtility):
@@ -231,7 +282,16 @@ class IntervalHandler:
         self.current_step += 1
 
     def perform_action(self, time):
-        """Perform the action if an interval has passed"""
+        """Invoke the stored action if enough time has elapsed.
+
+        Parameters
+        ----------
+        time : float
+            The current simulation time (typically
+            ``self._owner.clock.time``).  The action is called only
+            when ``time >= last_action_time + interval`` (or on the
+            very first invocation).
+        """
         if self._check_step(time):
             self._action()
             self._last_action = time
@@ -246,31 +306,50 @@ class IntervalHandler:
 
 
 class PointDiagnostic(Diagnostic):
-    """
+    """Sample a field at a single spatial point on every step.
+
+    An interpolator is built with
+    :meth:`turbopy.core.GridBase.create_interpolator` for the
+    requested location, and each sample is forwarded to an
+    :class:`OutputUtility` (``"stdout"``, ``"csv"``, or ``"npy"``).
+
     Parameters
     ----------
     owner : Simulation
-       Simulation object containing current object.
+        Simulation object containing this diagnostic.
     input_data : dict
-       Dictionary that contains information regarding location, field,
-       and output type.
+        Diagnostic configuration.  Expected keys:
+
+        - ``"location"`` : coordinate at which to sample.  Scalar for
+          1D grids; a tuple for 2D grids.
+        - ``"field"`` : name of the shared resource to sample.
+        - ``"output_type"`` : one of ``"stdout"``, ``"csv"``,
+          ``"npy"``.
+        - ``"write_interval"`` (optional) : time interval between
+          flushes to disk.
 
     Attributes
     ----------
-    location : str
-        Location.
+    location : float or tuple of float
+        Spatial coordinate being sampled.
     field_name : str
-        Field name.
+        Name of the shared resource to sample.
     output : str
-        Output type.
-    get_value : function, None
-        Function to get value given the field.
-    field : str, None
-        Field as dictated by resource.
-    output_function : function, None
-        Function for assigned output method: standard output or csv.
-    csv : :class:`numpy.ndarray`, None
-        numpy.ndarray being written as a csv file.
+        The ``"output_type"`` string.
+    get_value : callable or None
+        Interpolator built from
+        :meth:`turbopy.core.GridBase.create_interpolator`; ``None``
+        until :meth:`initialize` runs.
+    field : :class:`numpy.ndarray` or None
+        Shared field, bound by :meth:`inspect_resources`.
+    outputter : :class:`OutputUtility` or None
+        Output sink (``PrintOutputUtility``, ``CSVOutputUtility``,
+        or ``NPYOutputUtility``).
+    interval : float or None
+        The ``"write_interval"`` value from the input dict.
+    handler : :class:`IntervalHandler` or None
+        Wraps ``outputter.write_data`` and calls it every
+        ``interval`` seconds.
     """
     def __init__(self, owner: Simulation, input_data: dict):
         super().__init__(owner, input_data)
@@ -293,9 +372,15 @@ class PointDiagnostic(Diagnostic):
             self.handler.perform_action(self._owner.clock.time)
 
     def initialize(self):
-        """
-        Initialize output function if provided as csv, and self.csv
-        as an instance of the :class:`CSVOuputUtility` class.
+        """Build the field interpolator and the :attr:`outputter`.
+
+        Constructs :attr:`get_value` by calling
+        :meth:`turbopy.core.GridBase.create_interpolator` on the
+        simulation grid, then instantiates the
+        :class:`OutputUtility` selected by
+        ``input_data["output_type"]`` and, if a ``write_interval``
+        was configured, wraps its ``write_data`` in an
+        :class:`IntervalHandler`.
         """
         # set up function to interpolate the field value
         super().initialize()
@@ -322,35 +407,53 @@ class PointDiagnostic(Diagnostic):
 
 
 class FieldDiagnostic(Diagnostic):
-    """
+    """Sample an entire shared field on the main-loop cadence.
+
+    Every call to :meth:`diagnose` records the field via the
+    configured :class:`OutputUtility` and (optionally) flushes the
+    buffer to disk on a separate ``write_interval`` cadence.
+
     Parameters
     ----------
     owner : Simulation
-       Simulation object containing current object.
+        Simulation object containing this diagnostic.
     input_data : dict
-       Dictionary that contains information regarding location, field,
-       and output type.
+        Diagnostic configuration.  Expected keys:
+
+        - ``"field"`` : name of the shared field.
+        - ``"component"`` : integer index into the vector component
+          axis, used only when the field has more than one
+          dimension.
+        - ``"output_type"`` : ``"stdout"``, ``"csv"``, or ``"npy"``.
+        - ``"dump_interval"`` (optional) : time interval between
+          samples; if omitted, the diagnostic samples every step.
+        - ``"write_interval"`` (optional) : time interval between
+          disk flushes.
 
     Attributes
     ----------
-    component : str
+    component : int
+        Vector component index selected on multi-component fields.
     field_name : str
-        Field.
+        Name of the shared field.
     output : str
-        Output type.
-    field : str, None
-        Field as dictated by resource.
-    dump_interval : int, None
-        Time interval at which the diagnostic is run.
-    write_interval : int, None
-        Time interval at which the diagnostic buffer is written to file. If
-        this is None, then the buffer is not written out until the end of
-        the simulation.
-    diagnose : method
-        Uses the dump and write handlers to perform the diagnostic actions.
-    diagnostic_size : (int, int), None
-        Size of data set to be written to CSV file. First value is the
-        number of time points. Second value is number of spatial points.
+        The ``"output_type"`` string.
+    field : :class:`numpy.ndarray` or None
+        The shared field, bound by :meth:`inspect_resources`.
+    outputter : :class:`OutputUtility` or None
+        Output sink instance.
+    dump_handler : :class:`IntervalHandler` or None
+        Controls how often :meth:`do_diagnostic` is invoked.
+    dump_interval : float or None
+        Sample cadence from the input dict.
+    write_handler : :class:`IntervalHandler` or None
+        Controls how often the outputter flushes to disk.
+    write_interval : float or None
+        Flush cadence from the input dict.  If ``None``, the buffer
+        is only written at the end of the simulation.
+    diagnostic_size : tuple of (int, int) or None
+        ``(num_time_samples, num_spatial_points)`` used to
+        preallocate the outputter buffer.
     """
     def __init__(self, owner: Simulation, input_data: dict):
         super().__init__(owner, input_data)
@@ -375,6 +478,13 @@ class FieldDiagnostic(Diagnostic):
         self._needed_resources = {self.field_name: "field"}
 
     def diagnose(self):
+        """Fire the dump and write handlers if their intervals have elapsed.
+
+        The dump handler wraps :meth:`do_diagnostic` and the write
+        handler wraps ``outputter.write_data``; each is invoked at
+        most once per call, and only when its :class:`IntervalHandler`
+        reports that the corresponding interval has passed.
+        """
         self.dump_handler.perform_action(self._owner.clock.time)
         if self.write_handler:
             self.write_handler.perform_action(self._owner.clock.time)
@@ -389,10 +499,14 @@ class FieldDiagnostic(Diagnostic):
             self.outputter.diagnose(self.field)
 
     def initialize(self):
-        """
-        Initialize diagnostic_size and output function if provided as
-        csv, and self.csv as an instance of the
-        :class:`CSVOutputUtility` class.
+        """Size the output buffer and construct :attr:`outputter`.
+
+        Computes :attr:`diagnostic_size` from the number of clock
+        steps (or from ``end_time / dump_interval`` when a dump
+        cadence is configured) and the shape of the shared field,
+        then instantiates the :class:`OutputUtility` selected by
+        ``input_data["output_type"]``.  Also creates the dump and
+        (optionally) write :class:`IntervalHandler` instances.
         """
         super().initialize()
         self.diagnostic_size = (self._owner.clock.num_steps + 1,
@@ -429,26 +543,30 @@ class FieldDiagnostic(Diagnostic):
 
 
 class GridDiagnostic(Diagnostic):
-    """Diagnostic subclass used to store and save grid data
-    into a CSV file
+    """Write the grid coordinate arrays once, at startup.
+
+    On :meth:`initialize` the grid coordinates are written to the
+    configured filename as CSV.  Behavior depends on the grid type:
+
+    - 1D :class:`~turbopy.core.Grid` -- write the ``r`` array as a
+      single column.
+    - :class:`~turbopy.core.Grid2DCartesian` -- write both axes
+      (``x`` and ``y``) as two padded columns with an ``x,y`` header.
+    - :class:`~turbopy.core.Grid2DCylindrical` -- write both axes
+      (``r`` and ``z``) as two padded columns with an ``r,z`` header.
 
     Parameters
     ----------
     owner : Simulation
-        The 'Simulation' object that contains this object
+        The :class:`~turbopy.core.Simulation` that owns this
+        diagnostic.
     input_data : dict
-        Dictionary containing information about this diagnostic such as
-        its name
+        Diagnostic configuration; must include ``"filename"``.
 
     Attributes
     ----------
-    owner : Simulation
-        The 'Simulation' object that contains this object
-    input_data : dict
-        Dictionary containing information about this diagnostic such as
-        its name
     filename : str
-        File name for CSV grid file
+        Absolute path of the CSV grid file.
     """
 
     def __init__(self, owner: Simulation, input_data: dict):
@@ -456,11 +574,16 @@ class GridDiagnostic(Diagnostic):
         self.filename = input_data["filename"]
 
     def diagnose(self):
-        """Grid diagnotic only runs at startup"""
+        """No-op: this diagnostic writes its output once at startup."""
         pass
 
     def initialize(self):
-        """Save grid data into CSV file"""
+        """Write the grid coordinate arrays to :attr:`filename`.
+
+        For 2D grids both axes are written as two padded columns
+        (shorter axis padded with ``NaN``); for 1D grids a single
+        column of ``grid.r`` values is written.
+        """
         super().initialize()
         grid = self._owner.grid
         with open(self.filename, 'wb') as f:
@@ -481,63 +604,64 @@ class GridDiagnostic(Diagnostic):
 
 
 class ClockDiagnostic(Diagnostic):
-    """Diagnostic subclass used to store and save time data into a CSV
-    file using the CSVOutputUtility class.
+    """Record the simulation clock's ``time`` on every step.
+
+    A :class:`CSVOutputUtility` buffer is written to disk either at
+    the configured ``write_interval`` or once at the end of the run.
 
     Parameters
     ----------
     owner : Simulation
-        The :class:`Simulation` object that contains this object
+        The :class:`~turbopy.core.Simulation` that owns this
+        diagnostic.
     input_data : dict
-        Dictionary containing information about this diagnostic such as
-        its name
+        Diagnostic configuration.  Expected keys:
+
+        - ``"filename"`` : path of the CSV time file.
+        - ``"write_interval"`` (optional) : cadence at which the
+          buffer is flushed to disk.
 
     Attributes
     ----------
-    owner : Simulation
-        The :class:`Simulation` object that contains this object
-    input_data : dict
-        Dictionary containing information about this diagnostic such as
-        its name
     filename : str
-        File name for CSV time file
-    csv : :class:`numpy.ndarray`
-        Array to store values to be written into a CSV file
-    interval : float, None
-        The time interval to wait in between writing to output file. If interval is None,
-        then the outputs are written only at the end of the simulation.
-    handler : IntervalHandler
-        The :class:`IntervalHandler` object that handles writing to output files while
-        the simulation is running. Is None if the interval parameter is not specified
+        Absolute path of the CSV file.
+    outputter : :class:`CSVOutputUtility` or None
+        Output helper; ``None`` until :meth:`initialize` runs.
+    interval : float or None
+        The ``"write_interval"`` value from the input dict.  If
+        ``None``, the buffer is only written at end of run.
+    handler : :class:`IntervalHandler` or None
+        Wraps :meth:`CSVOutputUtility.write_data`.  ``None`` when
+        ``interval`` was not configured.
     """
 
     def __init__(self, owner: Simulation, input_data: dict):
         super().__init__(owner, input_data)
         self.filename = input_data["filename"]
-        self.csv = None
+        self.outputter = None
         self.interval = self._input_data.get('write_interval', None)
         self.handler = None
 
     def diagnose(self):
-        """Append time into the csv buffer."""
+        """Append time into the outputter buffer."""
         if self.handler:
             self.handler.perform_action(self._owner.clock.time)
-        self.csv.diagnose(self._owner.clock.time)
+        self.outputter.diagnose(self._owner.clock.time)
 
     def initialize(self):
-        """Initialize `self.csv` as an instance of the
-        :class:`CSVOuputUtility` class."""
+        """Initialize ``self.outputter`` as a :class:`CSVOutputUtility`."""
         super().initialize()
         diagnostic_size = (self._owner.clock.num_steps + 1, 1)
-        self.csv = CSVOutputUtility(self._input_data["filename"],
-                                    diagnostic_size)
+        self.outputter = CSVOutputUtility(self._input_data["filename"],
+                                          diagnostic_size)
         if self.interval:
-            self.handler = IntervalHandler(self.interval, self.csv.write_data)
+            self.handler = IntervalHandler(self.interval,
+                                           self.outputter.write_data)
 
     def finalize(self):
-        """Write time into self.csv and saves as a CSV file."""
+        """Write time into ``self.outputter`` and save as a CSV file."""
         self.diagnose()
-        self.csv.finalize()
+        self.outputter.finalize()
 
 
 class HistoryDiagnostic(Diagnostic):
@@ -546,6 +670,15 @@ class HistoryDiagnostic(Diagnostic):
     This diagnostic assists in outputting 1D history traces. Multiple time-
     dependant quantities can be selected, and are output to a NetCDF file
     using the xarray python package.
+
+    Raises
+    ------
+    NotImplementedError
+        Raised in :meth:`initialize` if the simulation grid is a
+        :class:`~turbopy.core.Grid2DCartesian` or
+        :class:`~turbopy.core.Grid2DCylindrical`.  Only 1D grids are
+        currently supported; 2D xarray coordinate support is planned
+        as future work.
 
     Examples
     --------
@@ -632,9 +765,17 @@ class HistoryDiagnostic(Diagnostic):
         self._needed_resources = {k: f'_data_{k}' for k in self._history_key_list}
 
     def diagnose(self):
+        """Delegate to the interval handler; runs :meth:`do_diagnostic` on cadence."""
         self._handler.perform_action(self._owner.clock.time)
 
     def do_diagnostic(self):
+        """Record one time slice into the xarray dataset.
+
+        Writes the current clock time into the ``time`` coordinate
+        and copies every configured trace's current value into the
+        appropriate row of the dataset.  Uses Ellipsis indexing so
+        multi-dimensional traces are handled uniformly.
+        """
         this_step = self._handler.current_step
         self._traces['time']._variable._data[this_step] = self._owner.clock.time
 
@@ -643,6 +784,20 @@ class HistoryDiagnostic(Diagnostic):
             self._traces[name]._variable._data[this_step, ...] = self.__dict__[f'_data_{name}']
 
     def initialize(self):
+        """Allocate the xarray dataset and register per-trace metadata.
+
+        Sets up the ``time`` and grid coordinates, then walks
+        ``input_data["traces"]`` to expand every trace as a new
+        variable with a ``timestep`` dimension.  Only 1D grids are
+        supported.
+
+        Raises
+        ------
+        NotImplementedError
+            If the simulation grid is
+            :class:`~turbopy.core.Grid2DCartesian` or
+            :class:`~turbopy.core.Grid2DCylindrical`.
+        """
         # set up the time coordinate
         self._traces.coords['time'] = ('timestep', np.zeros(self._num_outputs))
         self._traces.coords['time'].attrs['units'] = 's'
@@ -693,6 +848,12 @@ class HistoryDiagnostic(Diagnostic):
                     self._traces[trace['name']].attrs['long_name'] = trace['long_name']
 
     def finalize(self):
+        """Squeeze the dataset and write it to a NetCDF file.
+
+        Removes size-1 dimensions from the trace dataset and writes
+        the result to :attr:`_filename` using
+        :meth:`xarray.Dataset.to_netcdf`.
+        """
         self._traces = self._traces.squeeze()  # remove unused dimensions
         self._traces.to_netcdf(self._filename, 'w')
 
