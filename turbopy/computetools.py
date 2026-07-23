@@ -13,6 +13,7 @@ Included stock subclasses:
 import numpy as np
 import scipy.interpolate as interpolate
 from scipy import sparse
+from scipy.sparse.linalg import spsolve
 
 from .core import ComputeTool, Grid, Grid2DCartesian, Grid2DCylindrical, Simulation
 
@@ -628,13 +629,23 @@ class FiniteDifference2D(ComputeTool):
         return sparse.kron(I1, L2, format='csr')
 
     def laplacian(self):
-        """2D Cartesian Laplacian: ``d²/dx² + d²/dy²``.
+        """2D Laplacian, dispatched on grid type.
+
+        - :class:`turbopy.core.Grid2DCartesian`:
+          ``d²/dx² + d²/dy²``
+        - :class:`turbopy.core.Grid2DCylindrical` (axisymmetric):
+          ``d²/dr² + (1/r) d/dr + d²/dz²``
 
         Returns
         -------
-        :class:`scipy.sparse.csr_matrix`, shape ``(Nx*Ny, Nx*Ny)``
+        :class:`scipy.sparse.csr_matrix`, shape ``(N1*N2, N1*N2)``
         """
-        return self.del2_x() + self.del2_y()
+        grid = self.grid
+        if isinstance(grid, Grid2DCartesian):
+            return (self.del2_x() + self.del2_y()).tocsr()
+        if isinstance(grid, Grid2DCylindrical):
+            return (self.del2_r() + self.del2_z()).tocsr()
+        raise TypeError("laplacian() requires a 2D grid.")
 
     # ------------------------------------------------------------------ #
     # Cylindrical 2D operators                                             #
@@ -682,9 +693,111 @@ class FiniteDifference2D(ComputeTool):
         L2 = self._laplacian_1d(grid.Nz, grid.dz)
         return sparse.kron(I1, L2, format='csr')
 
+    def del2_r(self):
+        """Radial part of the 2D cylindrical (axisymmetric) Laplacian:
+        ``d²/dr² + (1/r) d/dr``.
+
+        The ``(1/r)`` factor is taken from :attr:`Grid2DCylindrical.r_inv_2d`,
+        which sets ``1/r = 0`` at ``r == 0`` so the operator remains finite
+        on grids that include the axis.
+
+        Returns
+        -------
+        :class:`scipy.sparse.csr_matrix`, shape ``(Nr*Nz, Nr*Nz)``
+        """
+        grid = self.grid
+        if not isinstance(grid, Grid2DCylindrical):
+            raise TypeError("del2_r() requires a Grid2DCylindrical grid.")
+        I2 = sparse.eye(grid.Nz)
+        L1 = self._laplacian_1d(grid.Nr, grid.dr)
+        D1 = self._centered_diff_1d(grid.Nr, grid.dr)
+        d2_dr2 = sparse.kron(L1, I2, format='csr')
+        d_dr = sparse.kron(D1, I2, format='csr')
+        r_inv = sparse.diags(grid.r_inv_2d.ravel(order='C'))
+        return (d2_dr2 + r_inv @ d_dr).tocsr()
+
+
+class PoissonSolver2D(ComputeTool):
+    """Solve the 2D Poisson equation ``∇²φ = source`` with Dirichlet ``φ = 0``
+    on all four boundaries.
+
+    Uses :class:`FiniteDifference2D` to build the discrete Laplacian and
+    :func:`scipy.sparse.linalg.spsolve` for a direct sparse solve. Supports
+    :class:`turbopy.core.Grid2DCartesian` and
+    :class:`turbopy.core.Grid2DCylindrical` (axisymmetric).
+
+    Boundary conditions are enforced by replacing each boundary row of the
+    Laplacian with an identity row and zeroing the corresponding entry of
+    the source vector at solve time.
+
+    Parameters
+    ----------
+    owner : Simulation
+        The :class:`turbopy.core.Simulation` object that contains this tool.
+    input_data : dict
+        No custom configuration options.
+
+    Raises
+    ------
+    TypeError
+        If the simulation grid is not a 2D grid.
+    """
+
+    def __init__(self, owner: Simulation, input_data: dict):
+        super().__init__(owner, input_data)
+        grid = self._owner.grid
+        if not isinstance(grid, (Grid2DCartesian, Grid2DCylindrical)):
+            raise TypeError(
+                "PoissonSolver2D requires a 2D grid "
+                "(Grid2DCartesian or Grid2DCylindrical)."
+            )
+        self.grid = grid
+        self._shape = grid.shape
+        self._boundary_mask_flat = self._make_boundary_mask(self._shape).ravel(order='C')
+        fd = FiniteDifference2D(owner, {"type": "FiniteDifference2D"})
+        laplacian = fd.laplacian().tolil()
+        for idx in np.where(self._boundary_mask_flat)[0]:
+            laplacian.rows[idx] = [idx]
+            laplacian.data[idx] = [1.0]
+        self._operator = laplacian.tocsr()
+
+    @staticmethod
+    def _make_boundary_mask(shape):
+        mask = np.zeros(shape, dtype=bool)
+        mask[0, :] = True
+        mask[-1, :] = True
+        mask[:, 0] = True
+        mask[:, -1] = True
+        return mask
+
+    def solve(self, source):
+        """Solve ``∇²φ = source`` on the 2D grid with ``φ = 0`` on all edges.
+
+        Parameters
+        ----------
+        source : :class:`numpy.ndarray`
+            Source term on the grid; shape must match ``grid.shape``.
+
+        Returns
+        -------
+        :class:`numpy.ndarray`
+            Solution ``φ`` on the grid; same shape as ``source``, with
+            ``φ = 0`` on all four boundaries.
+        """
+        if source.shape != self._shape:
+            raise ValueError(
+                f"source shape {source.shape} does not match grid shape "
+                f"{self._shape}"
+            )
+        rhs = source.ravel(order='C').astype(float, copy=True)
+        rhs[self._boundary_mask_flat] = 0.0
+        phi_flat = spsolve(self._operator, rhs)
+        return phi_flat.reshape(self._shape)
+
 
 ComputeTool.register("BorisPush", BorisPush)
 ComputeTool.register("PoissonSolver1DRadial", PoissonSolver1DRadial)
+ComputeTool.register("PoissonSolver2D", PoissonSolver2D)
 ComputeTool.register("FiniteDifference", FiniteDifference)
 ComputeTool.register("FiniteDifference2D", FiniteDifference2D)
 ComputeTool.register("Interpolators", Interpolators)

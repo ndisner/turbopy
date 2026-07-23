@@ -84,8 +84,8 @@ Use `isinstance(grid, GridBase)` for any grid, `isinstance(grid, Grid)` to detec
 
 ### Provided Implementations
 
-- **`turbopy/computetools.py`**: `PoissonSolver1DRadial`, `FiniteDifference` (1D-only; raises `TypeError` on a 2D grid), `FiniteDifference2D` (Kronecker-product sparse operators for 2D grids: `ddx`/`ddy`/`del2_x`/`del2_y`/`laplacian` for Cartesian, `ddr`/`ddz`/`del2_z` for cylindrical; expects fields flattened in C order), `BorisPush`, `Interpolators`.
-- **`turbopy/diagnostics.py`**: `PointDiagnostic`, `FieldDiagnostic`, `GridDiagnostic` (writes both axes for 2D grids), `ClockDiagnostic`, `HistoryDiagnostic` (**1D only** — raises `NotImplementedError` on 2D grids); output utilities for CSV and NPY formats.
+- **`turbopy/computetools.py`**: `PoissonSolver1DRadial`, `PoissonSolver2D` (Dirichlet `φ=0` on all boundaries; supports both 2D grid types via `FiniteDifference2D` + `scipy.sparse.linalg.spsolve`), `FiniteDifference` (1D-only; raises `TypeError` on a 2D grid), `FiniteDifference2D` (Kronecker-product sparse operators for 2D grids: `ddx`/`ddy`/`del2_x`/`del2_y` for Cartesian, `ddr`/`ddz`/`del2_r`/`del2_z` for cylindrical, `laplacian()` dispatches on grid type — Cartesian returns `del2_x + del2_y`, cylindrical returns `del2_r + del2_z` with the `(1/r) d/dr` term; expects fields flattened in C order), `BorisPush`, `Interpolators`.
+- **`turbopy/diagnostics.py`**: `PointDiagnostic`, `FieldDiagnostic`, `GridDiagnostic` (writes both axes for 2D grids), `ClockDiagnostic`, `HistoryDiagnostic` (supports 1D and both 2D grid types; 2D grids attach `x`/`y` or `r`/`z` coordinates to the xarray dataset); output utilities for CSV and NPY formats.
 - **`turbopy/constructors.py`**: `construct_simulation_from_toml(filename)` helper.
 
 ### Adding a Custom Module
