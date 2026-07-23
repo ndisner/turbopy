@@ -281,11 +281,34 @@ class Simulation:
             self.grid = Grid(grid_data)
 
     def read_clock_from_input(self):
-        """Construct the clock based on input parameters"""
+        """Construct the :class:`SimulationClock` from input.
+
+        Reads the ``"Clock"`` entry of :attr:`input_data` and stores
+        the resulting clock in :attr:`clock`.
+
+        Raises
+        ------
+        KeyError
+            If the ``"Clock"`` key is missing from
+            :attr:`input_data`.
+        """
         self.clock = SimulationClock(self, self.input_data["Clock"])
 
     def read_tools_from_input(self):
-        """Construct :class:`ComputeTools` based on input"""
+        """Construct :class:`ComputeTool` instances from input.
+
+        Iterates over ``input_data["Tools"]``.  For each key, the
+        value may be either a single dict of parameters or a *list*
+        of dicts.  A list produces one tool instance per entry — each
+        instance may set a ``"custom_name"`` to distinguish itself
+        for :meth:`find_tool_by_name`.
+
+        Notes
+        -----
+        The ``"type"`` field on the parameter dict is populated
+        automatically from the input key before the tool is
+        instantiated.
+        """
         for tool_name, params in self.input_data["Tools"].items():
             tool_class = ComputeTool.lookup(tool_name)
             if not isinstance(params, list):
@@ -296,7 +319,13 @@ class Simulation:
                                                      input_data=tool))
 
     def read_modules_from_input(self):
-        """Construct :class:`PhysicsModule` instances based on input"""
+        """Construct :class:`PhysicsModule` instances from input.
+
+        Iterates over ``input_data["PhysicsModules"]`` and appends a
+        new instance of each named module to
+        :attr:`physics_modules`.  After all modules are constructed,
+        :meth:`sort_modules` is called (currently a stub).
+        """
         for physics_module_name, physics_module_data in \
                 self.input_data["PhysicsModules"].items():
             print(f"Loading physics module: {physics_module_name}...")
@@ -307,7 +336,22 @@ class Simulation:
         self.sort_modules()
 
     def read_diagnostics_from_input(self):
-        """Construct :class:`Diagnostic` instances based on input"""
+        """Construct :class:`Diagnostic` instances from input.
+
+        The ``"Diagnostics"`` input dictionary is first split by
+        :meth:`parse_diagnostic_input_dictionary` into (a) entries
+        whose key is a registered :class:`Diagnostic` name and (b)
+        other entries which are treated as default parameter values.
+        The defaults are then merged into every constructed
+        diagnostic via :meth:`combine_dictionaries`.
+
+        If a diagnostic does not supply ``"filename"``, one is
+        generated as ``"{diag_type}{file_num}.{output_type}"`` where
+        ``file_num`` counts instances per diagnostic type and
+        ``output_type`` defaults to ``"out"``.  The default output
+        directory is ``"default_output"``; the final path stored on
+        each diagnostic is ``directory / filename``.
+        """
         diagnostics, default_params = self.parse_diagnostic_input_dictionary()
 
         diagnostics = make_values_into_lists(diagnostics)
@@ -332,15 +376,45 @@ class Simulation:
                     diagnostic_class(owner=self, input_data=params))
 
     def combine_dictionaries(self, defaults, custom):
-        # Values in "custom" dictionary supersede "defaults" because of
-        # the order in which they are combined here
+        """Merge two configuration dictionaries.
+
+        Values from ``custom`` supersede matching keys in ``defaults``.
+
+        Parameters
+        ----------
+        defaults : dict
+            Default parameter values.
+        custom : dict
+            Diagnostic-specific parameter values that override
+            ``defaults``.
+
+        Returns
+        -------
+        dict
+            A new dictionary containing the union of the two inputs,
+            with ``custom`` winning on collisions.
+        """
         return {**defaults, **custom}
 
     def parse_diagnostic_input_dictionary(self):
-        # The input_data["Diagnostics"] dictionary has two types of keys:
-        #    1) keys that are valid diagnostic types
-        #    2) other keys, which should be passed along
-        #    as "default" parameters
+        """Split ``input_data["Diagnostics"]`` into diagnostics and defaults.
+
+        The ``"Diagnostics"`` input dictionary has two kinds of keys:
+
+        1. Keys that match a registered :class:`Diagnostic` subclass
+           name (as reported by
+           :meth:`DynamicFactory.is_valid_name`).
+        2. Any other keys, which are treated as *default* parameters
+           and later merged into every constructed diagnostic's
+           ``input_data`` by :meth:`combine_dictionaries`.
+
+        Returns
+        -------
+        tuple of (dict, dict)
+            ``(diagnostics, default_params)``.  ``diagnostics`` maps
+            registered names to their config dicts;
+            ``default_params`` holds the shared defaults.
+        """
         diagnostics = {k: v for k, v in
                        self.input_data["Diagnostics"].items()
                        if Diagnostic.is_valid_name(k)}
@@ -350,14 +424,36 @@ class Simulation:
         return diagnostics, default_params
 
     def sort_modules(self):
-        """Sort :class:`Simulation.physics_modules` by some logic
+        """Sort :attr:`physics_modules` by some ordering rule.
 
-        Unused stub for future implementation"""
+        Notes
+        -----
+        This is currently an unused stub for future implementation.
+        No production code relies on any particular ordering imposed
+        by this method — physics modules are executed in the order
+        they appear in the input dictionary.
+        """
         pass
 
     def find_tool_by_name(self, tool_name: str, custom_name: str = None):
-        """Returns the :class:`ComputeTool` associated with the
-        given name"""
+        """Locate a compute tool by its registered name.
+
+        Parameters
+        ----------
+        tool_name : str
+            The registered class name of the desired
+            :class:`ComputeTool` subclass.
+        custom_name : str, optional
+            When multiple tools of the same type were created (from a
+            list of dicts in the ``"Tools"`` input), match on this
+            additional identifier.  Default is ``None``.
+
+        Returns
+        -------
+        ComputeTool or None
+            The matching tool instance.  Returns ``None`` if zero or
+            more than one match is found.
+        """
         tools = [t for t in self.compute_tools if t.name == tool_name
                  and t.custom_name == custom_name]
         if len(tools) == 1:
@@ -365,9 +461,27 @@ class Simulation:
         return None
 
     def __repr__(self):
+        """Return a reproducible representation of the simulation.
+
+        The returned string is ``ClassName(input_data)`` and is
+        suitable for debugging output.
+        """
         return f"{self.__class__.__name__}({self.input_data})"
 
     def gather_shared_resources(self, shared):
+        """Publish a module's resources into
+        :attr:`all_shared_resources`.
+
+        Called by :meth:`PhysicsModule.exchange_resources` during
+        :meth:`prepare_simulation`.  Overwriting an existing shared
+        resource emits a :class:`UserWarning`.
+
+        Parameters
+        ----------
+        shared : dict
+            Mapping of ``shared_key -> value`` to register on the
+            simulation.
+        """
         for k, v in shared.items():
             if k in self.all_shared_resources:
                 warnings.warn(f'Shared resource {k} has been overwritten')
@@ -375,10 +489,31 @@ class Simulation:
 
 
 class DynamicFactory(ABC):
-    """Abstract class which provides dynamic factory functionality
+    """Abstract base for turboPy's registry-based factory pattern.
 
-    This base class provides a dynamic factory pattern functionality to
-    classes that derive from this.
+    Subclasses of :class:`DynamicFactory` (in turboPy these are
+    :class:`PhysicsModule`, :class:`ComputeTool`, and
+    :class:`Diagnostic`) provide a class-level registry that maps
+    string names to subclass objects.  A :class:`Simulation` looks up
+    classes by name based on the keys in its input dictionary.
+
+    Subclasses must define two class attributes:
+
+    * ``_factory_type_name`` -- a human-readable label used in error
+      messages (e.g., ``"Physics Module"``).
+    * ``_registry`` -- a dict that will hold the registered classes.
+
+    Examples
+    --------
+    Register and look up a subclass::
+
+        class MyModule(PhysicsModule):
+            def update(self):
+                ...
+
+        PhysicsModule.register("MyModule", MyModule)
+        cls = PhysicsModule.lookup("MyModule")
+        assert cls is MyModule
     """
 
     @property
@@ -398,7 +533,36 @@ class DynamicFactory(ABC):
     @classmethod
     def register(cls, name_to_register: str, class_to_register,
                  override=False):
-        """Add a derived class to the registry"""
+        """Add a subclass to the factory registry.
+
+        Parameters
+        ----------
+        name_to_register : str
+            The key under which ``class_to_register`` will be stored.
+            This is the string used in the input dictionary to
+            request an instance.
+        class_to_register : type
+            A subclass of ``cls``.
+        override : bool, optional
+            If ``True``, silently replace an existing registration
+            with the same name.  Default is ``False``.
+
+        Raises
+        ------
+        ValueError
+            If ``name_to_register`` is already in the registry and
+            ``override`` is ``False``.
+        TypeError
+            If ``class_to_register`` is not a subclass of ``cls``.
+
+        Notes
+        -----
+        Because the registry is a class attribute, registration
+        persists across all instances of the factory subclass for
+        the lifetime of the Python process.  Import the module
+        defining a subclass before constructing a
+        :class:`Simulation` so its registration side-effect runs.
+        """
         if name_to_register in cls._registry and not override:
             raise ValueError("{0} '{1}' already registered".format(
                 cls._factory_type_name, name_to_register))
@@ -409,8 +573,24 @@ class DynamicFactory(ABC):
 
     @classmethod
     def lookup(cls, name: str):
-        """Look up a name in the registry, and return the associated
-        derived class"""
+        """Return the registered subclass associated with ``name``.
+
+        Parameters
+        ----------
+        name : str
+            The registration key of the desired subclass.
+
+        Returns
+        -------
+        type
+            The subclass previously passed to :meth:`register` under
+            ``name``.
+
+        Raises
+        ------
+        KeyError
+            If ``name`` is not in the registry.
+        """
         try:
             return cls._registry[name]
         except KeyError:
@@ -419,7 +599,19 @@ class DynamicFactory(ABC):
 
     @classmethod
     def is_valid_name(cls, name: str):
-        """Check if the name is in the registry"""
+        """Report whether ``name`` is present in the registry.
+
+        Parameters
+        ----------
+        name : str
+            The registration key to check.
+
+        Returns
+        -------
+        bool
+            ``True`` if ``name`` was previously registered, else
+            ``False``.
+        """
         return name in cls._registry
 
 
@@ -499,16 +691,18 @@ class PhysicsModule(DynamicFactory):
         self._needed_resources = {}
 
     def publish_resource(self, resource: dict):
-        """**Deprecated**
+        """Share a resource dictionary with every other module.
 
-        *This method is only here for backwards compatability. New
-        code should use the ``_resources_to_share`` dictionary.*
+        .. deprecated::
+            This method is retained only for backwards compatibility.
+            New code should populate the
+            :attr:`_resources_to_share` dictionary instead, and let
+            :meth:`exchange_resources` publish it.
 
-        Method which implements the details of sharing resources
         Parameters
         ----------
-        resource : `dict`
-            resource dictionary to be shared
+        resource : dict
+            Resource dictionary to be shared.
         """
         warnings.warn("The resource-sharing API has changed. "
                       "Add to `self._resources_to_share` instead of "
@@ -522,22 +716,39 @@ class PhysicsModule(DynamicFactory):
             diagnostic.inspect_resource(resource)
 
     def inspect_resource(self, resource: dict):
-        """**Deprecated**
+        """Callback for accepting resources shared by other modules.
 
-        *This method is only here for backwards compatability. New
-        code should use the ``_needed_resources`` dictionary.*
+        .. deprecated::
+            This method is retained only for backwards compatibility.
+            New code should populate the :attr:`_needed_resources`
+            dictionary instead, which is bound automatically by
+            :meth:`inspect_resources`.
 
-        Method for accepting resources shared by other PhysicsModules
-        If your subclass needs the data described by the key, now's
-        their chance to save a pointer to the data.
         Parameters
         ----------
-        resource : `dict`
-            resource dictionary to be shared
+        resource : dict
+            Resource dictionary offered by another
+            :class:`PhysicsModule`.  Subclasses that need a value in
+            ``resource`` should save a reference to it during this
+            call.
         """
         pass
 
     def inspect_resources(self):
+        """Bind every entry in :attr:`_needed_resources` as an attribute.
+
+        Iterates over ``_needed_resources``, and for each
+        ``shared_name -> var_name`` mapping looks up ``shared_name``
+        in :attr:`Simulation.all_shared_resources` and stores it as
+        ``self.<var_name>``.  A :class:`UserWarning` is issued if the
+        requested resource has not been published.
+
+        Notes
+        -----
+        Called by :meth:`Simulation.prepare_simulation` after every
+        module's :meth:`exchange_resources` has run, so producers
+        always publish before consumers bind.
+        """
         for shared_name, var_name in self._needed_resources.items():
             if shared_name not in self._owner.all_shared_resources:
                 warnings.warn(f"Module {self.__class__.__name__} can't find "
@@ -548,15 +759,19 @@ class PhysicsModule(DynamicFactory):
                                           ]
 
     def exchange_resources(self):
-        """Main method for sharing resources with other
-        :class:`PhysicsModule` objects.
+        """Publish this module's shared resources to the simulation.
 
-        This is the function where you call :meth:`publish_resource`,
-        to tell other physics modules about data you want to share.
+        The default implementation forwards :attr:`_resources_to_share`
+        to :meth:`Simulation.gather_shared_resources`, which stores
+        the values in :attr:`Simulation.all_shared_resources`.
 
-        By default, any "public" attributes (those with names that do
-        not start with an underscore) will be shared with the key
-        `<class_name>_<attribute_name>`.
+        Called once per module by :meth:`Simulation.prepare_simulation`
+        before any module's :meth:`inspect_resources`.
+
+        By default, any "public" attribute (a name that does not start
+        with an underscore) is auto-registered in
+        :attr:`_resources_to_share` under the key
+        ``<class_name>_<attribute_name>`` in :meth:`__init__`.
         """
 
         for k in self._resources_to_share.keys():
@@ -565,29 +780,47 @@ class PhysicsModule(DynamicFactory):
         self._owner.gather_shared_resources(self._resources_to_share)
 
     def update(self):
-        """Do the main work of the :class:`PhysicsModule`
+        """Advance this module's state by one time step.
 
-        This is called at every time step in the main loop.
+        Called once per module on every step of
+        :meth:`Simulation.fundamental_cycle`.
+
+        Raises
+        ------
+        NotImplementedError
+            Subclasses **must** override this method.  The base
+            implementation always raises.
         """
         raise NotImplementedError
 
     def reset(self):
-        """Perform any needed reset operations
+        """Optional per-step reset hook.
 
-        This is called at every time step in the main loop, before any
-        of the calls to `update`.
+        Called on every module at the start of every
+        :meth:`Simulation.fundamental_cycle`, before any module's
+        :meth:`update`.  Override to zero accumulators or otherwise
+        clear per-step state.  The default implementation does
+        nothing.
         """
         pass
 
     def initialize(self):
-        """Perform initialization operations for this
-        :class:`PhysicsModule`
+        """Optional one-time setup after resources are bound.
 
-        This is called before the main simulation loop
+        Called once per module during
+        :meth:`Simulation.prepare_simulation`, after
+        :meth:`exchange_resources` and :meth:`inspect_resources`
+        have run for every module.  Override to perform setup that
+        depends on shared resources.
         """
         pass
 
     def __repr__(self):
+        """Return a reproducible representation of the module.
+
+        The returned string is ``ClassName(input_data)`` and is
+        useful for debugging.
+        """
         return f"{self.__class__.__name__}({self._input_data})"
 
 
@@ -636,10 +869,25 @@ class ComputeTool(DynamicFactory):
             self.custom_name = input_data["custom_name"]
 
     def initialize(self):
-        """Perform any initialization operations needed for this tool"""
+        """Optional one-time setup for the tool.
+
+        Notes
+        -----
+        Called by :meth:`Simulation.prepare_simulation` after every
+        tool has been constructed but before any
+        :class:`PhysicsModule.initialize` runs.  Override to build
+        derived data structures (e.g., sparse matrices, factorizations)
+        that depend on the grid or clock.  The default implementation
+        does nothing.
+        """
         pass
 
     def __repr__(self):
+        """Return a reproducible representation of the compute tool.
+
+        The returned string is ``ClassName(input_data)`` and is
+        useful for debugging.
+        """
         return f"{self.__class__.__name__}({self._input_data})"
 
 
@@ -716,24 +964,63 @@ class SimulationClock:
             self.num_steps = np.int64(np.rint(self.num_steps))
 
     def advance(self):
-        """Increment the time"""
+        """Advance the clock by one time step.
+
+        Increments :attr:`this_step` by 1 and recomputes
+        :attr:`time` from ``start_time + dt * this_step``.  If
+        :attr:`print_time` is ``True``, prints the new time in
+        scientific notation.
+
+        Notes
+        -----
+        Called by :meth:`Simulation.fundamental_cycle` at the end of
+        every main-loop iteration.
+        """
         self.this_step += 1
         self.time = self.start_time + self.dt * self.this_step
         if self.print_time:
             print(f"t = {self.time:0.4e}")
 
     def turn_back(self, num_steps=1):
-        """Set the time back `num_steps` time steps"""
+        """Undo one or more time steps.
+
+        Parameters
+        ----------
+        num_steps : int, optional
+            Number of steps to roll back.  Default is ``1``.
+
+        Notes
+        -----
+        Decrements :attr:`this_step` by ``num_steps`` and recomputes
+        :attr:`time` from ``start_time + dt * this_step``.  Emits a
+        line to stdout when :attr:`print_time` is ``True``.  Useful
+        for physics modules that must iterate to convergence within
+        a single top-level step.
+        """
         self.this_step = self.this_step - num_steps
         self.time = self.start_time + self.dt * self.this_step
         if self.print_time:
             print(f"t = {self.time}")
 
     def is_running(self):
-        """Check if time is less than end time"""
+        """Report whether the simulation should keep looping.
+
+        Returns
+        -------
+        bool
+            ``True`` while :attr:`this_step` is strictly less than
+            :attr:`num_steps`.  The main loop in
+            :meth:`Simulation.run` calls this to decide whether to
+            invoke :meth:`Simulation.fundamental_cycle` again.
+        """
         return self.this_step < self.num_steps
 
     def __repr__(self):
+        """Return a reproducible representation of the clock.
+
+        The returned string is ``ClassName(input_data)`` and is
+        useful for debugging.
+        """
         return f"{self.__class__.__name__}({self._input_data})"
 
 
@@ -783,7 +1070,20 @@ class GridBase(ABC):
         """
 
     def __repr__(self):
-        return f"{self.__class__.__name__}({self._input_data})"
+        """Return a reproducible representation of the grid.
+
+        The returned string is ``ClassName(input_data)`` where
+        ``input_data`` is the dict the concrete subclass was
+        constructed from. If the subclass has not set
+        ``self._input_data`` (e.g., a partially-constructed instance
+        or a custom subclass that stores its config differently),
+        falls back to ``ClassName(<uninitialized>)`` rather than
+        raising :class:`AttributeError`.
+        """
+        input_data = getattr(self, "_input_data", None)
+        if input_data is None:
+            return f"{self.__class__.__name__}(<uninitialized>)"
+        return f"{self.__class__.__name__}({input_data})"
 
 
 class Grid(GridBase):
@@ -909,6 +1209,7 @@ class Grid(GridBase):
                         + " not found."))
 
     def set_grid_points(self):
+        """Populate the coordinate, cell-edge, and cell-width arrays."""
         self.r = (self.r_min + (self.r_max - self.r_min) *
                   self.generate_linear())
         self.cell_edges = self.r
@@ -920,19 +1221,37 @@ class Grid(GridBase):
 
     def generate_field(self, num_components=1,
                        placement_of_points="edge-centered"):
-        """Returns squeezed :class:`numpy.ndarray` of zeros with
-        dimensions :class:`Grid.num_points` and `num_components`.
+        """Return a zero-filled :class:`numpy.ndarray` for a 1D field.
 
         Parameters
         ----------
-        num_components : int, defaults to 1
-            Number of vector components at each point.
-        placement_of_points : str, defaults to "edge-centered"
-            Designate position of points on grid
+        num_components : int, optional
+            Number of vector components at each point.  Default is
+            ``1``.
+        placement_of_points : str, optional
+            One of:
+
+            - ``"edge-centered"`` -- shape ``(num_points,)``.
+            - ``"cell-centered"`` -- shape ``(num_points - 1,)``.
+
+            Default is ``"edge-centered"``.
+
         Returns
         -------
         :class:`numpy.ndarray`
-            Squeezed array of zeros.
+            A squeezed zero-array of the appropriate shape.
+
+        Raises
+        ------
+        ValueError
+            If ``placement_of_points`` is not one of the recognized
+            values.
+
+        Notes
+        -----
+        The 2D grids (:class:`Grid2DCartesian`,
+        :class:`Grid2DCylindrical`) accept additional staggered
+        placements such as ``"x-edge-y-cell"``.
         """
         number_of_field_points = None
         if placement_of_points == "edge-centered":
@@ -944,14 +1263,14 @@ class Grid(GridBase):
         return np.squeeze(np.zeros((number_of_field_points, num_components)))
 
     def generate_linear(self):
-        """Returns :class:`numpy.ndarray` with :class:`Grid.num_points`
-        evenly spaced in the interval between 0 and 1.
+        """Return an array evenly spaced between 0 and 1.
 
-         Returns
-         -------
-         :class:`numpy.ndarray`
-            Evenly spaced array.
-         """
+        Returns
+        -------
+        :class:`numpy.ndarray`
+            Array of length :attr:`Grid.num_points`, values evenly
+            spaced in the interval ``[0, 1]``.
+        """
         return np.linspace(0, 1, self.num_points)
 
     def create_interpolator(self, r0):
@@ -1002,6 +1321,7 @@ class Grid(GridBase):
             return interpval
 
     def set_volume_and_area_elements(self):
+        """Dispatch to the coordinate-system-specific volume/area setters."""
         if self.coordinate_system == 'cartesian':
             self.set_cartesian_volumes()
             self.set_cartesian_areas()
@@ -1017,29 +1337,36 @@ class Grid(GridBase):
         self.set_interface_volumes()
 
     def set_cartesian_volumes(self):
+        """Populate :attr:`cell_volumes` for 1D Cartesian coordinates."""
         self.cell_volumes = self.cell_edges[1:] - self.cell_edges[:-1]
         self.inverse_cell_volumes = 1. / self.cell_volumes
 
     def set_cylindrical_volumes(self):
+        """Populate :attr:`cell_volumes` for 1D cylindrical coordinates."""
         scratch = self.cell_edges ** 2
         self.cell_volumes = np.pi * (scratch[1:] - scratch[:-1])
         self.inverse_cell_volumes = 1. / self.cell_volumes
 
     def set_spherical_volumes(self):
+        """Populate :attr:`cell_volumes` for 1D spherical coordinates."""
         scratch = self.cell_edges ** 3
         self.cell_volumes = 4 / 3 * np.pi * (scratch[1:] - scratch[:-1])
         self.inverse_cell_volumes = 1. / self.cell_volumes
 
     def set_cartesian_areas(self):
+        """Populate :attr:`interface_areas` for 1D Cartesian coordinates."""
         self.interface_areas = np.ones_like(self.cell_edges)
 
     def set_cylindrical_areas(self):
+        """Populate :attr:`interface_areas` for 1D cylindrical coordinates."""
         self.interface_areas = 2.0 * np.pi * self.cell_edges
 
     def set_spherical_areas(self):
+        """Populate :attr:`interface_areas` for 1D spherical coordinates."""
         self.interface_areas = 4.0 * np.pi * self.cell_edges ** 2
 
     def set_interface_volumes(self):
+        """Populate the interface-volume arrays as cell-volume averages."""
         self.interface_volumes = np.zeros_like(self.cell_edges)
         self.inverse_interface_volumes = np.zeros_like(self.interface_volumes)
 
@@ -1503,23 +1830,39 @@ class Diagnostic(DynamicFactory):
         self._needed_resources = {}
 
     def inspect_resource(self, resource: dict):
-        """**Deprecated**
+        """Callback for accepting resources shared by other modules.
 
-        *This method is only here for backwards compatability. New
-        code should use the ``_needed_resources`` dictionary.*
+        .. deprecated::
+            This method is retained only for backwards compatibility.
+            New code should populate the :attr:`_needed_resources`
+            dictionary, which is bound automatically by
+            :meth:`inspect_resources`.
 
-        Save references to data from other PhysicsModules
-        If your subclass needs the data described by the key, now's
-        their chance to save a reference to the data
         Parameters
         ----------
-        resource: `dict`
-            A dictionary containing references to data shared by other
-            PhysicsModules.
+        resource : dict
+            A dictionary containing references to data shared by
+            other :class:`PhysicsModule` instances.  Subclasses that
+            need one of the values should save a reference during
+            this call.
         """
         pass
 
     def inspect_resources(self):
+        """Bind every entry in :attr:`_needed_resources` as an attribute.
+
+        Iterates over ``_needed_resources``, and for each
+        ``shared_name -> var_name`` mapping looks up ``shared_name``
+        in :attr:`Simulation.all_shared_resources` and stores it as
+        ``self.<var_name>``.  A :class:`UserWarning` is issued if the
+        requested resource has not been published.
+
+        Notes
+        -----
+        Called by :meth:`Simulation.prepare_simulation` on every
+        diagnostic after all modules have published their
+        resources.
+        """
         for shared_name, var_name in self._needed_resources.items():
             if shared_name not in self._owner.all_shared_resources:
                 warnings.warn(f"Diagnostic {self.__class__.__name__} can't "
@@ -1563,10 +1906,16 @@ class Diagnostic(DynamicFactory):
         pass
 
     def __repr__(self):
+        """Return a reproducible representation of the diagnostic.
+
+        The returned string is ``ClassName(input_data)`` and is
+        useful for debugging.
+        """
         return f"{self.__class__.__name__}({self._input_data})"
 
 
 def wrap_item_in_list(item):
+    """Return ``item`` wrapped in a single-element list if it is not one already."""
     if type(item) is list:
         return item
     else:
@@ -1574,4 +1923,5 @@ def wrap_item_in_list(item):
 
 
 def make_values_into_lists(dictionary):
+    """Return a new dict whose values are each guaranteed to be a list."""
     return {k: wrap_item_in_list(v) for k, v in dictionary.items()}

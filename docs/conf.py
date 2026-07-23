@@ -23,8 +23,13 @@ project = 'turboPy'
 html_show_copyright = False
 author = 'Steve Richardson'
 
-# The full version, including alpha/beta/rc tags
-release = 'v2023.06.09'
+# The full version, including alpha/beta/rc tags — pulled from the package
+# metadata so it stays in sync with `turbopy.__version__`.
+try:
+    from turbopy import __version__ as _turbopy_version
+    release = _turbopy_version
+except Exception:  # pragma: no cover - fallback if import fails at build time
+    release = ''
 
 
 # -- General configuration ---------------------------------------------------
@@ -34,12 +39,25 @@ release = 'v2023.06.09'
 # ones.
 extensions = [
     'sphinx.ext.autodoc',
+    'sphinx.ext.autosummary',
+    'sphinx.ext.viewcode',
     'sphinx.ext.mathjax',
     'sphinx.ext.coverage',
     'sphinx.ext.napoleon',
-    'sphinx.ext.intersphinx'
+    'sphinx.ext.intersphinx',
 ]
 # Might want to add 'numpydoc', but readthedocs doesn't like it
+
+# autodoc defaults so inherited members and __init__ show up on every class.
+autodoc_default_options = {
+    'members': True,
+    'inherited-members': True,
+    'show-inheritance': True,
+    'special-members': '__init__',
+}
+
+# Generate stub pages for autosummary directives automatically.
+autosummary_generate = True
 
 master_doc = 'index'
 
@@ -57,12 +75,10 @@ napoleon_numpy_docstring = True
 
 # Options for intersphinx
 intersphinx_mapping = {
-    'python': ('https://docs.python.org/', None),
-    'numpy': ('http://docs.scipy.org/doc/numpy/', None),
-    'scipy': ('http://docs.scipy.org/doc/scipy/reference/', None),
+    'python': ('https://docs.python.org/3/', None),
+    'numpy': ('https://numpy.org/doc/stable/', None),
+    'scipy': ('https://docs.scipy.org/doc/scipy/', None),
 }
-
-master_doc = 'index'
 
 # -- Options for HTML output -------------------------------------------------
 
@@ -71,28 +87,32 @@ master_doc = 'index'
 #
 # html_theme = 'alabaster'
 html_theme = "sphinx_rtd_theme"
-html_static_path = []
 
-# Add any paths that contain custom static files (such as style sheets) here,
-# relative to this directory. They are copied after the builtin static files,
-# so a file named "default.css" will overwrite the builtin "default.css".
-# html_static_path = ['_static']
+# Paths containing custom static files (images, style sheets). Copied after
+# the theme's own static files.
+html_static_path = ['_static']
 
+# Sidebar logo. This is a Sphinx-level setting (not a theme option), so it
+# works regardless of theme; sphinx_rtd_theme places it above the nav.
+html_logo = '_static/turbopy_cpfw.png'
+
+# Only options actually recognized by sphinx_rtd_theme belong here — putting
+# alabaster keys (github_user, github_banner, etc.) here would emit
+# "unsupported theme option" warnings on every build.
 html_theme_options = {
-    # 'logo': 'logo.png',
-    'github_user': 'NRL-Plasma-Physics-Division',
-    'github_repo': 'turbopy',
-    'description': 'A lightweight framework for computational physics',
-    'github_banner': False,
-    'github_button': True,
-    'travis_button': True,
+    'logo_only': True,
+    'collapse_navigation': False,
+    'navigation_depth': 3,
 }
 
-html_sidebars = {
-    '**': [
-        'about.html',
-        'navigation.html',
-        'relations.html',
-        'searchbox.html'
-    ]
+# Enables the sphinx_rtd_theme "Edit on GitHub" link at the top of every
+# page. The keys below are the ones the theme's layout template reads;
+# putting them here (rather than in html_theme_options) is the RTD-idiomatic
+# pattern and does not emit "unsupported theme option" warnings.
+html_context = {
+    'display_github': True,
+    'github_user': 'NRL-Plasma-Physics-Division',
+    'github_repo': 'turbopy',
+    'github_version': 'main',
+    'conf_py_path': '/docs/',
 }
